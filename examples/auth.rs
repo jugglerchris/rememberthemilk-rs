@@ -9,7 +9,7 @@ async fn main() -> Result<(), failure::Error>
     let api_secret = args[2].clone();
 
     let api = API::new(api_key, api_secret);
-    let frob = api.get_frob().await?;
-    println!("frob={}", frob);
+    let url = api.get_auth_url().await?;
+    println!("auth_url: {}", url);
     Ok(())
 }
