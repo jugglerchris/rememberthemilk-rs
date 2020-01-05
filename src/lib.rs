@@ -25,6 +25,11 @@ struct FrobResponse {
     frob: String,
 }
 
+pub struct AuthState {
+    frob: String,
+    pub url: String,
+}
+
 impl API {
     pub fn new(api_key: String, api_secret: String) -> API {
         API {
@@ -81,14 +86,24 @@ impl API {
         Ok(frob.frob)
     }
 
-    pub async fn get_auth_url(&self) -> Result<String, Error> {
+    pub async fn start_auth(&self) -> Result<AuthState, Error> {
         let frob = self.get_frob().await?;
         let url = self.make_authenticated_url(MILK_AUTH_URL, vec![
             ("api_key".into(), self.api_key.clone()),
             ("perms".into(), "read".into()),
-            ("frob".into(), frob)
+            ("frob".into(), frob.clone())
         ]);
-        Ok(url)
+        Ok(AuthState { frob, url })
+    }
+
+    pub async fn check_auth(&self, auth: &AuthState) -> Result<(), Error> {
+        let response = self.make_authenticated_request(MILK_REST_URL, vec![
+            ("method".into(), "rtm.auth.getToken".into()),
+            ("api_key".into(), self.api_key.clone()),
+            ("frob".into(), auth.frob.clone()),
+        ]).await?;
+        println!("{}", response);
+        Ok(())
     }
 }
 
