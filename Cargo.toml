@@ -9,3 +9,6 @@ edition = "2018"
 [dependencies]
 tokio = { version = "0.2", features = ["full"] }
 reqwest = "0.10"
+serde = "1.0"
+failure = "*"
+md5 = "0.7"
