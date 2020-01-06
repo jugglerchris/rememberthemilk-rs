@@ -16,6 +16,8 @@ pub enum MilkError {
 pub struct API {
     api_key: String,
     api_secret: String,
+    token: Option<String>,
+    user: Option<User>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -64,6 +66,8 @@ impl API {
         API {
             api_key,
             api_secret,
+            token: None,
+            user: None,
         }
     }
 
@@ -125,14 +129,17 @@ impl API {
         Ok(AuthState { frob, url })
     }
 
-    pub async fn check_auth(&self, auth: &AuthState) -> Result<(), Error> {
+    pub async fn check_auth(&mut self, auth: &AuthState) -> Result<bool, Error> {
         let response = self.make_authenticated_request(MILK_REST_URL, vec![
             ("method".into(), "rtm.auth.getToken".into()),
             ("api_key".into(), self.api_key.clone()),
             ("frob".into(), auth.frob.clone()),
         ]).await?;
-        println!("{}", response);
-        Ok(())
+
+        let auth_rep: AuthResponse = from_str(&response).unwrap();
+        self.token = Some(auth_rep.auth.token);
+        self.user = Some(auth_rep.auth.user);
+        Ok(true)
     }
 }
 
