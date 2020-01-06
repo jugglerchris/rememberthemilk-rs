@@ -2,7 +2,7 @@ use md5;
 use failure::{Fail,Error};
 use reqwest;
 use serde_xml_rs::from_str;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 static MILK_REST_URL: &'static str = "https://api.rememberthemilk.com/services/rest/";
 static MILK_AUTH_URL: &'static str = "https://www.rememberthemilk.com/services/auth/";
@@ -11,6 +11,14 @@ static MILK_AUTH_URL: &'static str = "https://www.rememberthemilk.com/services/a
 pub enum MilkError {
     #[fail(display = "HTTP error")]
     HTTPError(#[cause] reqwest::Error),
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct RTMConfig {
+    pub api_key: Option<String>,
+    pub api_secret: Option<String>,
+    pub token: Option<String>,
+    pub user: Option<User>,
 }
 
 pub struct API {
@@ -27,7 +35,7 @@ struct FrobResponse {
     frob: String,
 }
 
-#[derive(Deserialize, Debug,Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Debug,Eq, PartialEq)]
 #[serde(rename_all="lowercase")]
 enum Perms {
     Read,
@@ -35,8 +43,8 @@ enum Perms {
     Delete,
 }
 
-#[derive(Deserialize, Debug,Eq, PartialEq)]
-struct User {
+#[derive(Deserialize, Serialize, Debug,Eq, PartialEq, Clone)]
+pub struct User {
     id: usize,
     username: String,
     fullname: String,
@@ -68,6 +76,24 @@ impl API {
             api_secret,
             token: None,
             user: None,
+        }
+    }
+
+    pub fn from_config(config: RTMConfig) -> API {
+        API {
+            api_key: config.api_key.unwrap(),
+            api_secret: config.api_secret.unwrap(),
+            token: config.token,
+            user: config.user,
+        }
+    }
+
+    pub fn to_config(&self) -> RTMConfig {
+        RTMConfig {
+            api_key: Some(self.api_key.clone()),
+            api_secret: Some(self.api_secret.clone()),
+            token: self.token.clone(),
+            user: self.user.clone(),
         }
     }
 
@@ -136,10 +162,26 @@ impl API {
             ("frob".into(), auth.frob.clone()),
         ]).await?;
 
+        println!("{:?}", response);
         let auth_rep: AuthResponse = from_str(&response).unwrap();
         self.token = Some(auth_rep.auth.token);
         self.user = Some(auth_rep.auth.user);
         Ok(true)
+    }
+
+    pub async fn has_token(&self) -> Result<bool, Error> {
+        if let Some(ref tok) = self.token {
+            let response = self.make_authenticated_request(MILK_REST_URL, vec![
+                ("method".into(), "rtm.auth.checkToken".into()),
+                ("api_key".into(), self.api_key.clone()),
+                ("auth_token".into(), tok.clone()),
+            ]).await?;
+            // TODO: handle failure
+            let auth_rep: AuthResponse = from_str(&response).unwrap();
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 

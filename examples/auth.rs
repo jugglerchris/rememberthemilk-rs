@@ -1,29 +1,40 @@
+use failure::bail;
 use std::env;
 use rememberthemilk::API;
-use tokio::time::delay_for;
-use std::time::Duration;
+use confy;
 
 #[tokio::main]
 async fn main() -> Result<(), failure::Error>
 {
-    let args: Vec<String> = env::args().collect();
-    let api_key = args[1].clone();
-    let api_secret = args[2].clone();
+    let config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
+    let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
+        let api = API::from_config(config);
+        api
+    } else {
+        let args: Vec<String> = env::args().collect();
+        let api_key = args[1].clone();
+        let api_secret = args[2].clone();
 
-    let mut api = API::new(api_key, api_secret);
-    let auth = api.start_auth().await?;
-    println!("auth_url: {}", auth.url);
-    println!("Press enter when authorised...");
-    {
-        use std::io::BufRead;
-        let stdin = std::io::stdin();
-        let mut lines = stdin.lock().lines();
-        lines.next().unwrap().unwrap();
-    }
+        let api = API::new(api_key, api_secret);
+        api
+    };
 
-    if api.check_auth(&auth).await? {
-        println!("Successfull authorised");
-    }
+    if !api.has_token().await.unwrap() {
+        let auth = api.start_auth().await?;
+        println!("auth_url: {}", auth.url);
+        println!("Press enter when authorised...");
+        {
+            use std::io::BufRead;
+            let stdin = std::io::stdin();
+            let mut lines = stdin.lock().lines();
+            lines.next().unwrap().unwrap();
+        }
+
+        if !api.check_auth(&auth).await? {
+            bail!("Error authenticating");
+        }
+        confy::store("rtm_auth_example", api.to_config());
+    };
 
     Ok(())
 }
