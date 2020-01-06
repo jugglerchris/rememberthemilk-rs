@@ -25,6 +25,35 @@ struct FrobResponse {
     frob: String,
 }
 
+#[derive(Deserialize, Debug,Eq, PartialEq)]
+#[serde(rename_all="lowercase")]
+enum Perms {
+    Read,
+    Write,
+    Delete,
+}
+
+#[derive(Deserialize, Debug,Eq, PartialEq)]
+struct User {
+    id: usize,
+    username: String,
+    fullname: String,
+}
+
+#[derive(Deserialize, Debug,Eq, PartialEq)]
+struct Auth {
+    token: String,
+    perms: Perms,
+    user: User,
+}
+
+#[derive(Deserialize, Debug,Eq, PartialEq)]
+#[serde(rename="rsp")]
+struct AuthResponse {
+    stat: String,
+    auth: Auth,
+}
+
 pub struct AuthState {
     frob: String,
     pub url: String,
@@ -109,8 +138,28 @@ impl API {
 
 #[cfg(test)]
 mod tests {
+    use serde_xml_rs::from_str;
+    use super::*;
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn deser_auth_response() {
+        let ar: AuthResponse =  from_str(r#"<rsp stat="ok">
+          <auth>
+              <token>410c57262293e9d937ee5be75eb7b0128fd61b61</token>
+              <perms>delete</perms>
+              <user id="1" username="bob" fullname="Bob T. Monkey" />
+          </auth>
+      </rsp>"#).unwrap();
+      assert_eq!(ar, AuthResponse {
+          stat: "ok".into(),
+          auth: Auth {
+              token: "410c57262293e9d937ee5be75eb7b0128fd61b61".into(),
+              perms: Perms::Delete,
+              user: User {
+                  id: 1,
+                  username: "bob".into(),
+                  fullname: "Bob T. Monkey".into(),
+              }
+          },
+      });
     }
 }
