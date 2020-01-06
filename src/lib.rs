@@ -183,6 +183,20 @@ impl API {
             Ok(false)
         }
     }
+
+    pub async fn get_all_tasks(&self) -> Result<(), Error> {
+        if let Some(ref tok) = self.token {
+            let response = self.make_authenticated_request(MILK_REST_URL, vec![
+                ("method".into(), "rtm.tasks.getList".into()),
+                ("api_key".into(), self.api_key.clone()),
+                ("auth_token".into(), tok.clone()),
+            ]).await?;
+            println!("Got response: {:?}", response);
+        } else {
+            println!("No token");
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
