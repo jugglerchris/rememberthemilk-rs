@@ -1,11 +1,40 @@
 use md5;
 use failure::{Fail,Error};
 use reqwest;
-use serde_xml_rs::from_str;
+use serde_json::{from_str, to_string};
 use serde::{Deserialize, Serialize};
 
 static MILK_REST_URL: &'static str = "https://api.rememberthemilk.com/services/rest/";
 static MILK_AUTH_URL: &'static str = "https://www.rememberthemilk.com/services/auth/";
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[serde(rename = "err")]
+pub struct RTMError {
+    code: isize,
+    msg: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+#[serde(tag = "stat")]
+pub enum RTMResult<T> {
+    Ok(T),
+    Fail(RTMError),
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+pub struct RTMResponse<T> {
+    rsp: RTMResult<T>,
+}
+
+impl<T> RTMResponse<T> {
+    pub fn into_result(self) -> Result<T, RTMError> {
+        match self.rsp {
+            RTMResult::Ok(v) => Ok(v),
+            RTMResult::Fail(e) => Err(e),
+        }
+    }
+}
 
 #[derive(Debug,Fail)]
 pub enum MilkError {
@@ -45,23 +74,29 @@ enum Perms {
 
 #[derive(Deserialize, Serialize, Debug,Eq, PartialEq, Clone)]
 pub struct User {
-    id: usize,
+    id: String,
     username: String,
     fullname: String,
 }
 
-#[derive(Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[serde(rename = "auth")]
 struct Auth {
     token: String,
     perms: Perms,
     user: User,
 }
 
-#[derive(Deserialize, Debug,Eq, PartialEq)]
-#[serde(rename="rsp")]
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 struct AuthResponse {
     stat: String,
     auth: Auth,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct AuthResponse2 {
+    rsp: AuthResponse,
 }
 
 pub struct AuthState {
@@ -139,6 +174,7 @@ impl API {
     async fn get_frob(&self) -> Result<String, Error> {
         let response = self.make_authenticated_request(MILK_REST_URL, vec![
             ("method".into(), "rtm.auth.getFrob".into()),
+            ("format".into(), "json".into()),
             ("api_key".into(), self.api_key.clone())
         ]).await?;
         let frob: FrobResponse = from_str(&response).unwrap();
@@ -149,6 +185,7 @@ impl API {
         let frob = self.get_frob().await?;
         let url = self.make_authenticated_url(MILK_AUTH_URL, vec![
             ("api_key".into(), self.api_key.clone()),
+            ("format".into(), "json".into()),
             ("perms".into(), "read".into()),
             ("frob".into(), frob.clone())
         ]);
@@ -158,6 +195,7 @@ impl API {
     pub async fn check_auth(&mut self, auth: &AuthState) -> Result<bool, Error> {
         let response = self.make_authenticated_request(MILK_REST_URL, vec![
             ("method".into(), "rtm.auth.getToken".into()),
+            ("format".into(), "json".into()),
             ("api_key".into(), self.api_key.clone()),
             ("frob".into(), auth.frob.clone()),
         ]).await?;
@@ -173,6 +211,7 @@ impl API {
         if let Some(ref tok) = self.token {
             let response = self.make_authenticated_request(MILK_REST_URL, vec![
                 ("method".into(), "rtm.auth.checkToken".into()),
+                ("format".into(), "json".into()),
                 ("api_key".into(), self.api_key.clone()),
                 ("auth_token".into(), tok.clone()),
             ]).await?;
@@ -188,10 +227,11 @@ impl API {
         if let Some(ref tok) = self.token {
             let response = self.make_authenticated_request(MILK_REST_URL, vec![
                 ("method".into(), "rtm.tasks.getList".into()),
+                ("format".into(), "json".into()),
                 ("api_key".into(), self.api_key.clone()),
                 ("auth_token".into(), tok.clone()),
             ]).await?;
-            println!("Got response: {:?}", response);
+            println!("Got response:\n{}", response);
         } else {
             println!("No token");
         }
@@ -201,10 +241,34 @@ impl API {
 
 #[cfg(test)]
 mod tests {
-    use serde_xml_rs::from_str;
+    use serde_json::from_str;
     use super::*;
+    /*
     #[test]
     fn deser_auth_response() {
+        let ar: RTMResponse<Auth> =  from_str(r#"<rsp stat="ok">
+          <token>asdf</token>
+          <perms>read</perms>
+          <user id="2" username="adsf" fullname="laskjdaf" />
+          <auth>
+              <token>410c57262293e9d937ee5be75eb7b0128fd61b61</token>
+              <perms>delete</perms>
+              <user id="1" username="bob" fullname="Bob T. Monkey" />
+          </auth>
+      </rsp>"#).unwrap();
+      assert_eq!(ar, RTMResponse::Ok(Auth {
+              token: "410c57262293e9d937ee5be75eb7b0128fd61b61".into(),
+              perms: Perms::Delete,
+              user: User {
+                  id: 1,
+                  username: "bob".into(),
+                  fullname: "Bob T. Monkey".into(),
+              }
+      }));
+    }
+
+    #[test]
+    fn deser_auth_response2() {
         let ar: AuthResponse =  from_str(r#"<rsp stat="ok">
           <auth>
               <token>410c57262293e9d937ee5be75eb7b0128fd61b61</token>
@@ -224,5 +288,28 @@ mod tests {
               }
           },
       });
+    }
+    */
+
+    #[test]
+    fn deser_check_token()
+    {
+        let json_rsp = r#"{"rsp":{"stat":"ok","auth":{"token":"410c57262293e9d937ee5be75eb7b0128fd61b61","perms":"delete","user":{"id":"1","username":"bob","fullname":"Bob T. Monkey"}}}}"#;
+        let expected = AuthResponse {
+            stat: "ok".into(),
+            auth: Auth {
+                token: "410c57262293e9d937ee5be75eb7b0128fd61b61".into(),
+                perms: Perms::Delete,
+                user: User {
+                    id: "1".into(),
+                    username: "bob".into(),
+                    fullname: "Bob T. Monkey".into(),
+                }
+            },
+        };
+        println!("{}", to_string(&expected).unwrap());
+        println!("{}", json_rsp);
+        let ar: AuthResponse = from_str::<AuthResponse2>(json_rsp).unwrap().rsp;
+        assert_eq!(ar, expected);
     }
 }
