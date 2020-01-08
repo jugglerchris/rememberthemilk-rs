@@ -14,28 +14,6 @@ pub struct RTMError {
     msg: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
-#[serde(tag = "stat")]
-pub enum RTMResult<T> {
-    Ok(T),
-    Fail(RTMError),
-}
-
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
-pub struct RTMResponse<T> {
-    rsp: RTMResult<T>,
-}
-
-impl<T> RTMResponse<T> {
-    pub fn into_result(self) -> Result<T, RTMError> {
-        match self.rsp {
-            RTMResult::Ok(v) => Ok(v),
-            RTMResult::Fail(e) => Err(e),
-        }
-    }
-}
-
 #[derive(Debug,Fail)]
 pub enum MilkError {
     #[fail(display = "HTTP error")]
@@ -95,8 +73,8 @@ struct AuthResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
-struct AuthResponse2 {
-    rsp: AuthResponse,
+struct RTMResponse<T> {
+    rsp: T,
 }
 
 pub struct AuthState {
@@ -309,7 +287,7 @@ mod tests {
         };
         println!("{}", to_string(&expected).unwrap());
         println!("{}", json_rsp);
-        let ar: AuthResponse = from_str::<AuthResponse2>(json_rsp).unwrap().rsp;
+        let ar = from_str::<RTMResponse<AuthResponse>>(json_rsp).unwrap().rsp;
         assert_eq!(ar, expected);
     }
 }
