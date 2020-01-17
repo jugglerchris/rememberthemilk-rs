@@ -65,16 +65,42 @@ struct Auth {
     user: User,
 }
 
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum Stat {
+    Ok,
+    Fail,
+}
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 struct AuthResponse {
-    stat: String,
+    stat: Stat,
     auth: Auth,
+}
+
+trait RTMToResult {
+    type Type;
+    fn into_result(self) -> Result<Self::Type, RTMError>;
+}
+
+impl RTMToResult for AuthResponse {
+    type Type = Auth;
+    fn into_result(self) -> Result<Auth, RTMError> {
+        match self.stat {
+            Stat::Ok => Ok(self.auth),
+            Stat::Fail => panic!(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 struct RTMResponse<T> {
     rsp: T,
+}
+
+fn parse_response<'a, T: Deserialize<'a>+RTMToResult>(s: &'a str) -> Result<T::Type, RTMError> {
+    let parsed = from_str::<RTMResponse<T>>(s).expect("Invalid response");
+    parsed.rsp.into_result()
 }
 
 pub struct AuthState {
@@ -194,7 +220,7 @@ impl API {
                 ("auth_token".into(), tok.clone()),
             ]).await?;
             // TODO: handle failure
-            let auth_rep: AuthResponse = from_str(&response).unwrap();
+            let ar = from_str::<RTMResponse<AuthResponse>>(&response).unwrap().rsp;
             Ok(true)
         } else {
             Ok(false)
@@ -274,7 +300,7 @@ mod tests {
     {
         let json_rsp = r#"{"rsp":{"stat":"ok","auth":{"token":"410c57262293e9d937ee5be75eb7b0128fd61b61","perms":"delete","user":{"id":"1","username":"bob","fullname":"Bob T. Monkey"}}}}"#;
         let expected = AuthResponse {
-            stat: "ok".into(),
+            stat: Stat::Ok,
             auth: Auth {
                 token: "410c57262293e9d937ee5be75eb7b0128fd61b61".into(),
                 perms: Perms::Delete,
