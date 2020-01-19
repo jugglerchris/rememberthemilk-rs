@@ -112,7 +112,13 @@ pub struct TaskSeries {
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 struct RTMTasks {
     rev: String,
-    list: Vec<TaskSeries>,
+    list: Vec<RTMLists>,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct RTMLists {
+    id: String,
+    taskseries: Vec<TaskSeries>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -403,13 +409,21 @@ mod tests {
     {
         let json = r#"{"rsp": { "stat": "ok",
                "tasks": {"rev": "my_rev",
-                         "list": []}}}"#;
+                         "list": [
+                           {"id": "my_list_id",
+                            "taskseries": []}
+                         ]}}}"#;
 //        println!("{}", json);
         let expected = TasksResponse {
             stat: Stat::Ok,
             tasks: RTMTasks {
                 rev: "my_rev".into(),
-                list: vec![],
+                list: vec![
+                    RTMLists {
+                        id: "my_list_id".into(),
+                        taskseries: vec![],
+                    }
+                ],
             },
         };
         println!("{}", to_string(&expected).unwrap());
