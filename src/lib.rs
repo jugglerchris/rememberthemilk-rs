@@ -397,4 +397,23 @@ mod tests {
         let task = from_str::<Task>(json).unwrap();
         assert_eq!(task, expected);
     }
+
+    #[test]
+    fn test_deser_tasklist_response()
+    {
+        let json = r#"{"rsp": { "stat": "ok",
+               "tasks": {"rev": "my_rev",
+                         "list": []}}}"#;
+//        println!("{}", json);
+        let expected = TasksResponse {
+            stat: Stat::Ok,
+            tasks: RTMTasks {
+                rev: "my_rev".into(),
+                list: vec![],
+            },
+        };
+        println!("{}", to_string(&expected).unwrap());
+        let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
+        assert_eq!(lists, expected);
+    }
 }
