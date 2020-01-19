@@ -106,6 +106,7 @@ pub struct TaskSeries {
     id: String,
     created: DateTime<Utc>,
     modified: DateTime<Utc>,
+    task: Vec<Task>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -369,6 +370,12 @@ mod tests {
             id: "blahid".into(),
             created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
             modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
+            task: vec![
+                Task {
+                    id: "my_task_id".into(),
+                    due: chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0),
+                },
+            ],
         };
         println!("{}", to_string(&expected).unwrap());
         let tasks = from_str::<TaskSeries>(json).unwrap();
