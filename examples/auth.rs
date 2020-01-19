@@ -36,7 +36,7 @@ async fn main() -> Result<(), failure::Error>
         confy::store("rtm_auth_example", api.to_config());
     };
     println!("Getting all tasks...");
-//    api.get_all_tasks().await?;
+    println!("{:?}", api.get_all_tasks().await?);
     println!("Got all tasks.");
 
     Ok(())

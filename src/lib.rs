@@ -1,7 +1,8 @@
 use md5;
-use failure::{Fail,Error};
+use failure::{Fail,Error,bail};
 use reqwest;
 use serde_json::{from_str, to_string};
+use chrono::{DateTime, Utc, TimeZone};
 use serde::{Deserialize, Serialize};
 
 static MILK_REST_URL: &'static str = "https://api.rememberthemilk.com/services/rest/";
@@ -91,6 +92,32 @@ impl RTMToResult for AuthResponse {
             Stat::Fail => panic!(),
         }
     }
+}
+
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+pub struct Task {
+    id: String,
+    due: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+pub struct TaskSeries {
+    id: String,
+    created: DateTime<Utc>,
+    modified: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct RTMTasks {
+    rev: String,
+    list: Vec<TaskSeries>,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct TasksResponse {
+    stat: Stat,
+    tasks: RTMTasks,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -227,7 +254,7 @@ impl API {
         }
     }
 
-    pub async fn get_all_tasks(&self) -> Result<(), Error> {
+    pub async fn get_all_tasks(&self) -> Result<TaskSeries, Error> {
         if let Some(ref tok) = self.token {
             let response = self.make_authenticated_request(MILK_REST_URL, vec![
                 ("method".into(), "rtm.tasks.getList".into()),
@@ -235,11 +262,13 @@ impl API {
                 ("api_key".into(), self.api_key.clone()),
                 ("auth_token".into(), tok.clone()),
             ]).await?;
-            println!("Got response:\n{}", response);
+            //println!("Got response:\n{}", response);
+            // TODO: handle failure
+            let tasklist = from_str::<RTMResponse<TaskSeries>>(&response).unwrap().rsp;
+            Ok(tasklist)
         } else {
-            println!("No token");
+            bail!("Unable to fetch tasks")
         }
-        Ok(())
     }
 }
 
@@ -315,5 +344,50 @@ mod tests {
         println!("{}", json_rsp);
         let ar = from_str::<RTMResponse<AuthResponse>>(json_rsp).unwrap().rsp;
         assert_eq!(ar, expected);
+    }
+
+    #[test]
+    fn test_deser_taskseries()
+    {
+        let json = r#"
+               {"id":"blahid",
+                "created":"2020-01-01T16:00:00Z",
+                "modified":"2020-01-02T13:12:15Z",
+                "name":"Do the thing",
+                "source":"android",
+                "url":"",
+                "location_id":"",
+                "tags":{"tag":["computer"]},
+                "participants":[],
+                "notes":[],
+                "task":[
+                  {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
+                ]
+               }"#;
+//        println!("{}", json);
+        let expected = TaskSeries {
+            id: "blahid".into(),
+            created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
+            modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
+        };
+        println!("{}", to_string(&expected).unwrap());
+        let tasks = from_str::<TaskSeries>(json).unwrap();
+        assert_eq!(tasks, expected);
+    }
+
+    #[test]
+    fn test_deser_task()
+    {
+        let json = r#"
+                  {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
+"#;
+//        println!("{}", json);
+        let expected = Task {
+            id: "my_task_id".into(),
+            due: chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0),
+        };
+        println!("{}", to_string(&expected).unwrap());
+        let task = from_str::<Task>(json).unwrap();
+        assert_eq!(task, expected);
     }
 }
