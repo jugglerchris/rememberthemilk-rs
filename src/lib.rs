@@ -411,7 +411,21 @@ mod tests {
                "tasks": {"rev": "my_rev",
                          "list": [
                            {"id": "my_list_id",
-                            "taskseries": []}
+                            "taskseries": [
+                                {"id":"blahid",
+                                 "created":"2020-01-01T16:00:00Z",
+                                 "modified":"2020-01-02T13:12:15Z",
+                                 "name":"Do the thing",
+                                 "source":"android",
+                                 "url":"",
+                                 "location_id":"",
+                                 "tags":{"tag":["computer"]},
+                                 "participants":[],
+                                 "notes":[],
+                                 "task":[
+                                   {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
+                                 ]}
+                             ]}
                          ]}}}"#;
 //        println!("{}", json);
         let expected = TasksResponse {
@@ -421,13 +435,25 @@ mod tests {
                 list: vec![
                     RTMLists {
                         id: "my_list_id".into(),
-                        taskseries: vec![],
-                    }
-                ],
-            },
-        };
-        println!("{}", to_string(&expected).unwrap());
-        let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
-        assert_eq!(lists, expected);
+                        taskseries: vec![
+                            TaskSeries {
+                                id: "blahid".into(),
+                                created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
+                                modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
+                                task: vec![
+                                    Task {
+                                        id: "my_task_id".into(),
+                                        due: chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0),
+                                    },
+                                ],
+                            }
+                        ],
+                        }
+                    ],
+                },
+            };
+            println!("{}", to_string(&expected).unwrap());
+            let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
+            assert_eq!(lists, expected);
+        }
     }
-}
