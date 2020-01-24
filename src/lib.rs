@@ -94,11 +94,27 @@ impl RTMToResult for AuthResponse {
     }
 }
 
+use serde::de::IntoDeserializer;
+
+// Thanks to https://github.com/serde-rs/serde/issues/1425#issuecomment-462282398
+fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    let opt = Option::<String>::deserialize(de)?;
+    let opt = opt.as_ref().map(String::as_str);
+    match opt {
+        None | Some("") => Ok(None),
+        Some(s) => T::deserialize(s.into_deserializer()).map(Some)
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 pub struct Task {
     id: String,
-    due: DateTime<Utc>,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    due: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -110,7 +126,7 @@ pub struct TaskSeries {
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
-struct RTMTasks {
+pub struct RTMTasks {
     rev: String,
     list: Vec<RTMLists>,
 }
@@ -118,7 +134,7 @@ struct RTMTasks {
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 struct RTMLists {
     id: String,
-    taskseries: Vec<TaskSeries>,
+    taskseries: Option<Vec<TaskSeries>>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -261,7 +277,7 @@ impl API {
         }
     }
 
-    pub async fn get_all_tasks(&self) -> Result<TaskSeries, Error> {
+    pub async fn get_all_tasks(&self) -> Result<RTMTasks, Error> {
         if let Some(ref tok) = self.token {
             let response = self.make_authenticated_request(MILK_REST_URL, vec![
                 ("method".into(), "rtm.tasks.getList".into()),
@@ -271,7 +287,7 @@ impl API {
             ]).await?;
             //println!("Got response:\n{}", response);
             // TODO: handle failure
-            let tasklist = from_str::<RTMResponse<TaskSeries>>(&response).unwrap().rsp;
+            let tasklist = from_str::<RTMResponse<TasksResponse>>(&response).unwrap().rsp.tasks;
             Ok(tasklist)
         } else {
             bail!("Unable to fetch tasks")
@@ -283,53 +299,6 @@ impl API {
 mod tests {
     use serde_json::from_str;
     use super::*;
-    /*
-    #[test]
-    fn deser_auth_response() {
-        let ar: RTMResponse<Auth> =  from_str(r#"<rsp stat="ok">
-          <token>asdf</token>
-          <perms>read</perms>
-          <user id="2" username="adsf" fullname="laskjdaf" />
-          <auth>
-              <token>410c57262293e9d937ee5be75eb7b0128fd61b61</token>
-              <perms>delete</perms>
-              <user id="1" username="bob" fullname="Bob T. Monkey" />
-          </auth>
-      </rsp>"#).unwrap();
-      assert_eq!(ar, RTMResponse::Ok(Auth {
-              token: "410c57262293e9d937ee5be75eb7b0128fd61b61".into(),
-              perms: Perms::Delete,
-              user: User {
-                  id: 1,
-                  username: "bob".into(),
-                  fullname: "Bob T. Monkey".into(),
-              }
-      }));
-    }
-
-    #[test]
-    fn deser_auth_response2() {
-        let ar: AuthResponse =  from_str(r#"<rsp stat="ok">
-          <auth>
-              <token>410c57262293e9d937ee5be75eb7b0128fd61b61</token>
-              <perms>delete</perms>
-              <user id="1" username="bob" fullname="Bob T. Monkey" />
-          </auth>
-      </rsp>"#).unwrap();
-      assert_eq!(ar, AuthResponse {
-          stat: "ok".into(),
-          auth: Auth {
-              token: "410c57262293e9d937ee5be75eb7b0128fd61b61".into(),
-              perms: Perms::Delete,
-              user: User {
-                  id: 1,
-                  username: "bob".into(),
-                  fullname: "Bob T. Monkey".into(),
-              }
-          },
-      });
-    }
-    */
 
     #[test]
     fn deser_check_token()
@@ -379,7 +348,7 @@ mod tests {
             task: vec![
                 Task {
                     id: "my_task_id".into(),
-                    due: chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0),
+                    due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
                 },
             ],
         };
@@ -397,7 +366,23 @@ mod tests {
 //        println!("{}", json);
         let expected = Task {
             id: "my_task_id".into(),
-            due: chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0),
+            due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
+        };
+        println!("{}", to_string(&expected).unwrap());
+        let task = from_str::<Task>(json).unwrap();
+        assert_eq!(task, expected);
+    }
+
+    #[test]
+    fn test_deser_task_nodue()
+    {
+        let json = r#"
+                  {"id":"my_task_id","due":"","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
+"#;
+//        println!("{}", json);
+        let expected = Task {
+            id: "my_task_id".into(),
+            due: None,
         };
         println!("{}", to_string(&expected).unwrap());
         let task = from_str::<Task>(json).unwrap();
@@ -435,7 +420,7 @@ mod tests {
                 list: vec![
                     RTMLists {
                         id: "my_list_id".into(),
-                        taskseries: vec![
+                        taskseries: Some(vec![
                             TaskSeries {
                                 id: "blahid".into(),
                                 created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
@@ -443,17 +428,17 @@ mod tests {
                                 task: vec![
                                     Task {
                                         id: "my_task_id".into(),
-                                        due: chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0),
+                                        due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
                                     },
                                 ],
                             }
-                        ],
-                        }
-                    ],
-                },
-            };
-            println!("{}", to_string(&expected).unwrap());
-            let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
-            assert_eq!(lists, expected);
-        }
+                        ]),
+		    }
+		],
+	    },
+	};
+	println!("{}", to_string(&expected).unwrap());
+	let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
+	assert_eq!(lists, expected);
     }
+}
