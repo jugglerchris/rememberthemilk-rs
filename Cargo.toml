@@ -15,5 +15,8 @@ failure = "*"
 md5 = "0.7"
 chrono = {version = "*", features = ["serde"] }
 
+[[bin]]
+name = "rtm"
+
 [dev-dependencies]
 confy = "0.3"
