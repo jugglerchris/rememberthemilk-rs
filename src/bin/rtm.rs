@@ -49,7 +49,7 @@ async fn list_tasks() -> Result<(), failure::Error>
         }
         confy::store("rtm_auth_example", api.to_config())?;
     };
-    let all_tasks = api.get_all_tasks().await?;
+    let all_tasks = api.get_tasks_filtered("status:incomplete AND (dueBefore:today OR due:today)").await?;
     for list in all_tasks.list {
         println!("List id {}", list.id);
         if let Some(v) = list.taskseries {

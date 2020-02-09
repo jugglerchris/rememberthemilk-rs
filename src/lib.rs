@@ -278,13 +278,21 @@ impl API {
     }
 
     pub async fn get_all_tasks(&self) -> Result<RTMTasks, Error> {
+        self.get_tasks_filtered("").await
+        
+    }
+    pub async fn get_tasks_filtered(&self, filter: &str) -> Result<RTMTasks, Error> {
         if let Some(ref tok) = self.token {
-            let response = self.make_authenticated_request(MILK_REST_URL, vec![
+            let mut params = vec![
                 ("method".into(), "rtm.tasks.getList".into()),
                 ("format".into(), "json".into()),
                 ("api_key".into(), self.api_key.clone()),
                 ("auth_token".into(), tok.clone()),
-            ]).await?;
+            ];
+            if filter != "" {
+                params.push(("filter".into(), filter.into()));
+            }
+            let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
             //println!("Got response:\n{}", response);
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response).unwrap().rsp.tasks;
