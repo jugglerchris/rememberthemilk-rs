@@ -120,6 +120,7 @@ pub struct Task {
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 pub struct TaskSeries {
     pub id: String,
+    pub name: String,
     pub created: DateTime<Utc>,
     pub modified: DateTime<Utc>,
     pub task: Vec<Task>,

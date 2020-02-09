@@ -54,7 +54,7 @@ async fn list_tasks() -> Result<(), failure::Error>
         println!("List id {}", list.id);
         if let Some(v) = list.taskseries {
             for ts in v {
-                println!("  Task series id {}", ts.id);
+                println!("  Task series id {}: {}", ts.id, ts.name);
                 for task in ts.task {
                     println!("    Task id {}, due {:?}", task.id, task.due);
                 }
