@@ -47,10 +47,20 @@ async fn list_tasks() -> Result<(), failure::Error>
         if !api.check_auth(&auth).await? {
             bail!("Error authenticating");
         }
-        confy::store("rtm_auth_example", api.to_config());
+        confy::store("rtm_auth_example", api.to_config())?;
     };
-    println!("Getting all tasks...");
-    println!("{:?}", api.get_all_tasks().await?);
+    let all_tasks = api.get_all_tasks().await?;
+    for list in all_tasks.list {
+        println!("List id {}", list.id);
+        if let Some(v) = list.taskseries {
+            for ts in v {
+                println!("  Task series id {}", ts.id);
+                for task in ts.task {
+                    println!("    Task id {}, due {:?}", task.id, task.due);
+                }
+            }
+        }
+    }
     println!("Got all tasks.");
     Ok(())
 }

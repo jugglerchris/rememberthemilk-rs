@@ -112,29 +112,29 @@ where
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 pub struct Task {
-    id: String,
+    pub id: String,
     #[serde(deserialize_with = "empty_string_as_none")]
-    due: Option<DateTime<Utc>>,
+    pub due: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 pub struct TaskSeries {
-    id: String,
-    created: DateTime<Utc>,
-    modified: DateTime<Utc>,
-    task: Vec<Task>,
+    pub id: String,
+    pub created: DateTime<Utc>,
+    pub modified: DateTime<Utc>,
+    pub task: Vec<Task>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 pub struct RTMTasks {
-    rev: String,
-    list: Vec<RTMLists>,
+    pub rev: String,
+    pub list: Vec<RTMLists>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
-struct RTMLists {
-    id: String,
-    taskseries: Option<Vec<TaskSeries>>,
+pub struct RTMLists {
+    pub id: String,
+    pub taskseries: Option<Vec<TaskSeries>>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -221,7 +221,7 @@ impl API {
                     .await?
                     .text()
                     .await?;
-        println!("Body={}", body);
+        //println!("Body={}", body);
         Ok(body)
     }
 
@@ -254,7 +254,7 @@ impl API {
             ("frob".into(), auth.frob.clone()),
         ]).await?;
 
-        println!("{:?}", response);
+        //println!("{:?}", response);
         let auth_rep: AuthResponse = from_str(&response).unwrap();
         self.token = Some(auth_rep.auth.token);
         self.user = Some(auth_rep.auth.user);
