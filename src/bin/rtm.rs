@@ -2,14 +2,17 @@ use failure::bail;
 use structopt::StructOpt;
 use confy;
 use rememberthemilk::API;
-use std::env;
+use std::{env, collections::HashMap};
 
 #[derive(StructOpt,Debug)]
 enum Command {
-    /// Dummy command
-    Dummy,
-    /// List tasks
-    List,
+    /// Operate on tasks
+    Tasks {
+        #[structopt(long)]
+        filter: Option<String>,
+    },
+    /// Show all lists
+    Lists,
 }
 
 #[derive(StructOpt,Debug)]
@@ -18,7 +21,7 @@ struct Opt {
     cmd: Command,
 }
 
-async fn list_tasks() -> Result<(), failure::Error>
+async fn get_rtm_api() -> Result<API, failure::Error>
 {
     let config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
@@ -49,9 +52,26 @@ async fn list_tasks() -> Result<(), failure::Error>
         }
         confy::store("rtm_auth_example", api.to_config())?;
     };
-    let all_tasks = api.get_tasks_filtered("status:incomplete AND (dueBefore:today OR due:today)").await?;
+    Ok(api)
+}
+
+async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error>
+{
+    let mut api = get_rtm_api().await?;
+    let filter = match filter {
+        Some(ref s) => &s[..],
+        None => "status:incomplete AND (dueBefore:today OR due:today)",
+    };
+    let all_tasks = api.get_tasks_filtered(filter).await?;
+    let mut lists = HashMap::new();
+    if all_tasks.list.len() > 0 {
+        let all_lists = api.get_lists().await?;
+        for list in all_lists {
+            lists.insert(list.id.clone(), list);
+        }
+    }
     for list in all_tasks.list {
-        println!("List id {}", list.id);
+        println!("#{}", lists[&list.id].name);
         if let Some(v) = list.taskseries {
             for ts in v {
                 println!("  Task series id {}: {}", ts.id, ts.name);
@@ -65,16 +85,26 @@ async fn list_tasks() -> Result<(), failure::Error>
     Ok(())
 }
 
+async fn list_lists() -> Result<(), failure::Error>
+{
+    let mut api = get_rtm_api().await?;
+    let all_lists = api.get_lists().await?;
+    for list in all_lists {
+        println!("{}", list.name);
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), failure::Error>
 {
     let opt = Opt::from_args();
     match opt.cmd {
-        Command::Dummy => {
-            println!("Dummy");
+        Command::Tasks { filter } => {
+            list_tasks(filter).await?
         }
-        Command::List => {
-            list_tasks().await?
+        Command::Lists => {
+            list_lists().await?
         }
     }
 

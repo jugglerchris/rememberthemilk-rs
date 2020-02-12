@@ -1,8 +1,8 @@
 use md5;
 use failure::{Fail,Error,bail};
 use reqwest;
-use serde_json::{from_str, to_string};
-use chrono::{DateTime, Utc, TimeZone};
+use serde_json::{from_str};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 static MILK_REST_URL: &'static str = "https://api.rememberthemilk.com/services/rest/";
@@ -142,6 +142,24 @@ pub struct RTMLists {
 struct TasksResponse {
     stat: Stat,
     tasks: RTMTasks,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[serde(rename = "list")]
+pub struct RTMList {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct ListContainer {
+    list: Vec<RTMList>,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct ListsResponse {
+    stat: Stat,
+    lists: ListContainer,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -302,11 +320,29 @@ impl API {
             bail!("Unable to fetch tasks")
         }
     }
+    pub async fn get_lists(&self) -> Result<Vec<RTMList>, Error> {
+        if let Some(ref tok) = self.token {
+            let mut params = vec![
+                ("method".into(), "rtm.lists.getList".into()),
+                ("format".into(), "json".into()),
+                ("api_key".into(), self.api_key.clone()),
+                ("auth_token".into(), tok.clone()),
+            ];
+            let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
+            //println!("Got response:\n{}", response);
+            // TODO: handle failure
+            let lists = from_str::<RTMResponse<ListsResponse>>(&response).unwrap().rsp.lists;
+            Ok(lists.list)
+        } else {
+            bail!("Unable to fetch tasks")
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::from_str;
+    use serde_json::{from_str, to_string};
+    use chrono::TimeZone;
     use super::*;
 
     #[test]
@@ -352,6 +388,7 @@ mod tests {
 //        println!("{}", json);
         let expected = TaskSeries {
             id: "blahid".into(),
+            name: "Do the thing".into(),
             created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
             modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
             task: vec![
@@ -432,6 +469,7 @@ mod tests {
                         taskseries: Some(vec![
                             TaskSeries {
                                 id: "blahid".into(),
+                                name: "Do the thing".into(),
                                 created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
                                 modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
                                 task: vec![
