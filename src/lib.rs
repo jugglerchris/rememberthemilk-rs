@@ -36,10 +36,9 @@ pub struct API {
     user: Option<User>,
 }
 
-#[derive(Deserialize, Debug)]
-#[serde(rename="rsp")]
+#[derive(Deserialize, Debug, Serialize, Eq, PartialEq)]
 struct FrobResponse {
-    stat: String,
+    stat: Stat,
     frob: String,
 }
 
@@ -167,6 +166,13 @@ struct RTMResponse<T> {
     rsp: T,
 }
 
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct TimelineResponse {
+    timeline: String,
+}
+
+type RTMTimeline = String;
+
 pub struct AuthState {
     frob: String,
     pub url: String,
@@ -245,8 +251,8 @@ impl API {
             ("format".into(), "json".into()),
             ("api_key".into(), self.api_key.clone())
         ]).await?;
-        let frob: FrobResponse = from_str(&response).unwrap();
-        Ok(frob.frob)
+        let frob_resp = from_str::<RTMResponse<FrobResponse>>(&response).unwrap().rsp;
+        Ok(frob_resp.frob)
     }
 
     pub async fn start_auth(&self) -> Result<AuthState, Error> {
@@ -254,7 +260,7 @@ impl API {
         let url = self.make_authenticated_url(MILK_AUTH_URL, vec![
             ("api_key".into(), self.api_key.clone()),
             ("format".into(), "json".into()),
-            ("perms".into(), "read".into()),
+            ("perms".into(), "write".into()),
             ("frob".into(), frob.clone())
         ]);
         Ok(AuthState { frob, url })
@@ -269,7 +275,7 @@ impl API {
         ]).await?;
 
         //println!("{:?}", response);
-        let auth_rep: AuthResponse = from_str(&response).unwrap();
+        let auth_rep = from_str::<RTMResponse<AuthResponse>>(&response).unwrap().rsp;
         self.token = Some(auth_rep.auth.token);
         self.user = Some(auth_rep.auth.user);
         Ok(true)
@@ -328,6 +334,23 @@ impl API {
             // TODO: handle failure
             let lists = from_str::<RTMResponse<ListsResponse>>(&response).unwrap().rsp.lists;
             Ok(lists.list)
+        } else {
+            bail!("Unable to fetch tasks")
+        }
+    }
+    pub async fn get_timeline(&self) -> Result<RTMTimeline, Error> {
+        if let Some(ref tok) = self.token {
+            let mut params = vec![
+                ("method".into(), "rtm.timelines.create".into()),
+                ("format".into(), "json".into()),
+                ("api_key".into(), self.api_key.clone()),
+                ("auth_token".into(), tok.clone()),
+            ];
+            let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
+            println!("Got response:\n{}", response);
+            // TODO: handle failure
+            let tl = from_str::<TimelineResponse>(&response).unwrap().timeline;
+            Ok(tl)
         } else {
             bail!("Unable to fetch tasks")
         }

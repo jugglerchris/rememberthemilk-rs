@@ -13,6 +13,12 @@ enum Command {
     },
     /// Show all lists
     Lists,
+    /// Add a tag to filtered messages
+    AddTag {
+        tag: String,
+        #[structopt(long)]
+        filter: String,
+    }
 }
 
 #[derive(StructOpt,Debug)]
@@ -95,6 +101,27 @@ async fn list_lists() -> Result<(), failure::Error>
     Ok(())
 }
 
+async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error>
+{
+    let mut api = get_rtm_api().await?;
+    let timeline = api.get_timeline().await?;
+    let tasks = api.get_tasks_filtered(&filter).await?;
+    /*
+    for list in all_tasks.list {
+        println!("#{}", lists[&list.id].name);
+        if let Some(v) = list.taskseries {
+            for ts in v {
+                println!("  Task series id {}: {}", ts.id, ts.name);
+                for task in ts.task {
+                    println!("    Task id {}, due {:?}", task.id, task.due);
+                }
+            }
+        }
+    }
+    */
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), failure::Error>
 {
@@ -105,6 +132,9 @@ async fn main() -> Result<(), failure::Error>
         }
         Command::Lists => {
             list_lists().await?
+        }
+        Command::AddTag { filter, tag } => {
+            add_tag(filter, tag).await?
         }
     }
 
