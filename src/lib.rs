@@ -168,10 +168,11 @@ struct RTMResponse<T> {
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 struct TimelineResponse {
+    stat: Stat,
     timeline: String,
 }
 
-type RTMTimeline = String;
+pub struct RTMTimeline(String);
 
 pub struct AuthState {
     frob: String,
@@ -349,8 +350,8 @@ impl API {
             let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
             println!("Got response:\n{}", response);
             // TODO: handle failure
-            let tl = from_str::<TimelineResponse>(&response).unwrap().timeline;
-            Ok(tl)
+            let tl = from_str::<RTMResponse<TimelineResponse>>(&response).unwrap().rsp.timeline;
+            Ok(RTMTimeline(tl))
         } else {
             bail!("Unable to fetch tasks")
         }
