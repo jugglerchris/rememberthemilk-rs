@@ -167,11 +167,6 @@ struct RTMResponse<T> {
     rsp: T,
 }
 
-fn parse_response<'a, T: Deserialize<'a>+RTMToResult>(s: &'a str) -> Result<T::Type, RTMError> {
-    let parsed = from_str::<RTMResponse<T>>(s).expect("Invalid response");
-    parsed.rsp.into_result()
-}
-
 pub struct AuthState {
     frob: String,
     pub url: String,
@@ -322,7 +317,7 @@ impl API {
     }
     pub async fn get_lists(&self) -> Result<Vec<RTMList>, Error> {
         if let Some(ref tok) = self.token {
-            let mut params = vec![
+            let params = vec![
                 ("method".into(), "rtm.lists.getList".into()),
                 ("format".into(), "json".into()),
                 ("api_key".into(), self.api_key.clone()),

@@ -57,7 +57,7 @@ async fn get_rtm_api() -> Result<API, failure::Error>
 
 async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error>
 {
-    let mut api = get_rtm_api().await?;
+    let api = get_rtm_api().await?;
     let filter = match filter {
         Some(ref s) => &s[..],
         None => "status:incomplete AND (dueBefore:today OR due:today)",
@@ -87,7 +87,7 @@ async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error>
 
 async fn list_lists() -> Result<(), failure::Error>
 {
-    let mut api = get_rtm_api().await?;
+    let api = get_rtm_api().await?;
     let all_lists = api.get_lists().await?;
     for list in all_lists {
         println!("{}", list.name);
