@@ -149,6 +149,7 @@ pub struct TaskSeries {
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 pub struct RTMTasks {
     pub rev: String,
+    #[serde(default)]
     pub list: Vec<RTMLists>,
 }
 
@@ -180,6 +181,19 @@ struct ListContainer {
 struct ListsResponse {
     stat: Stat,
     lists: ListContainer,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct Transaction {
+    id: String,
+    undoable: String,
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+struct AddTagResponse {
+    stat: Stat,
+    transaction: Transaction,
+    list: RTMLists,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -369,10 +383,39 @@ impl API {
                 ("auth_token".into(), tok.clone()),
             ];
             let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
-            println!("Got response:\n{}", response);
+            //println!("Got response:\n{}", response);
             // TODO: handle failure
             let tl = from_str::<RTMResponse<TimelineResponse>>(&response).unwrap().rsp.timeline;
             Ok(RTMTimeline(tl))
+        } else {
+            bail!("Unable to fetch tasks")
+        }
+    }
+
+    pub async fn add_tag(&self,
+                         timeline: &RTMTimeline,
+                         list: &RTMLists,
+                         taskseries: &TaskSeries,
+                         task: &Task,
+                         tags: &[&str]) -> Result<(), Error> {
+        if let Some(ref tok) = self.token {
+            let params = vec![
+                ("method".into(), "rtm.tasks.addTags".into()),
+                ("format".into(), "json".into()),
+                ("api_key".into(), self.api_key.clone()),
+                ("auth_token".into(), tok.clone()),
+                ("timeline".into(), timeline.0.clone()),
+                ("list_id".into(), list.id.clone()),
+                ("taskseries_id".into(), taskseries.id.clone()),
+                ("task_id".into(), task.id.clone()),
+                ("tags".into(), tags.join(",")),
+            ];
+            let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
+            //println!("Got response:\n{}", response);
+            // TODO: handle failure
+            let rsp = from_str::<RTMResponse<AddTagResponse>>(&response).unwrap().rsp;
+            //println!("Add tag transaction: {:?}", rsp.transaction);
+            Ok(())
         } else {
             bail!("Unable to fetch tasks")
         }

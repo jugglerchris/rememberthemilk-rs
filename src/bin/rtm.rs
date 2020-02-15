@@ -103,22 +103,21 @@ async fn list_lists() -> Result<(), failure::Error>
 
 async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error>
 {
-    let mut api = get_rtm_api().await?;
+    let api = get_rtm_api().await?;
     let timeline = api.get_timeline().await?;
     let tasks = api.get_tasks_filtered(&filter).await?;
-    /*
-    for list in all_tasks.list {
-        println!("#{}", lists[&list.id].name);
-        if let Some(v) = list.taskseries {
+
+    for list in tasks.list {
+        if let Some(ref v) = list.taskseries {
             for ts in v {
-                println!("  Task series id {}: {}", ts.id, ts.name);
-                for task in ts.task {
-                    println!("    Task id {}, due {:?}", task.id, task.due);
+                let to_tag = !ts.tags.contains(&tag);
+                if to_tag {
+                    println!("  Adding tag to {}...", ts.name);
+                    api.add_tag(&timeline, &list, &ts, &ts.task[0], &[&tag[..]]).await?;
                 }
             }
         }
     }
-    */
     Ok(())
 }
 
