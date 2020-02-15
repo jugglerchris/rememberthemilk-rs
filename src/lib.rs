@@ -110,6 +110,25 @@ where
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[serde(untagged)]
+enum TagSer {
+    List(Vec<()>),
+    Tags { tag: Vec<String> },
+}
+
+fn deser_tags<'de, D>(de: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let res = TagSer::deserialize(de);
+    match res {
+        Err(e) => Err(e),
+        Ok(TagSer::List(_)) => Ok(vec![]),
+        Ok(TagSer::Tags { tag }) => Ok(tag),
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
 pub struct Task {
     pub id: String,
     #[serde(deserialize_with = "empty_string_as_none")]
@@ -123,6 +142,8 @@ pub struct TaskSeries {
     pub created: DateTime<Utc>,
     pub modified: DateTime<Utc>,
     pub task: Vec<Task>,
+    #[serde(deserialize_with = "deser_tags")]
+    pub tags: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
@@ -341,7 +362,7 @@ impl API {
     }
     pub async fn get_timeline(&self) -> Result<RTMTimeline, Error> {
         if let Some(ref tok) = self.token {
-            let mut params = vec![
+            let params = vec![
                 ("method".into(), "rtm.timelines.create".into()),
                 ("format".into(), "json".into()),
                 ("api_key".into(), self.api_key.clone()),
@@ -416,6 +437,7 @@ mod tests {
                     due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
                 },
             ],
+            tags: vec!["computer".into()],
         };
         println!("{}", to_string(&expected).unwrap());
         let tasks = from_str::<TaskSeries>(json).unwrap();
@@ -452,6 +474,30 @@ mod tests {
         println!("{}", to_string(&expected).unwrap());
         let task = from_str::<Task>(json).unwrap();
         assert_eq!(task, expected);
+    }
+
+    #[test]
+    fn test_deser_tag1()
+    {
+        let json = r#"
+               {"id":"blahid",
+                "created":"2020-01-01T16:00:00Z",
+                "modified":"2020-01-02T13:12:15Z",
+                "name":"Do the thing",
+                "source":"android",
+                "url":"",
+                "location_id":"",
+                "tags":{"tag":["computer"]},
+                "participants":[],
+                "notes":[],
+                "task":[
+                  {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
+                ]
+               }"#;
+        let expected = vec!["computer".to_string()];
+        println!("{}", to_string(&expected).unwrap());
+        let tasks = from_str::<TaskSeries>(json).unwrap();
+        assert_eq!(tasks.tags, expected);
     }
 
     #[test]
@@ -497,6 +543,7 @@ mod tests {
                                         due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
                                     },
                                 ],
+                                tags: vec!["computer".into()],
                             }
                         ]),
 		    }

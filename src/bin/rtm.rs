@@ -80,7 +80,7 @@ async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error>
         println!("#{}", lists[&list.id].name);
         if let Some(v) = list.taskseries {
             for ts in v {
-                println!("  Task series id {}: {}", ts.id, ts.name);
+                println!("  Task series id {}: {} tags: {:?}", ts.id, ts.name, ts.tags);
                 for task in ts.task {
                     println!("    Task id {}, due {:?}", task.id, task.due);
                 }
