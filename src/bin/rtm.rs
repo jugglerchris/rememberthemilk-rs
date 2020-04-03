@@ -31,15 +31,13 @@ struct Opt {
 async fn get_rtm_api() -> Result<API, failure::Error> {
     let config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
-        let api = API::from_config(config);
-        api
+        API::from_config(config)
     } else {
         let args: Vec<String> = env::args().collect();
         let api_key = args[1].clone();
         let api_secret = args[2].clone();
 
-        let api = API::new(api_key, api_secret);
-        api
+        API::new(api_key, api_secret)
     };
 
     if !api.has_token().await.unwrap() {
@@ -69,7 +67,7 @@ async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error> {
     };
     let all_tasks = api.get_tasks_filtered(filter).await?;
     let mut lists = HashMap::new();
-    if all_tasks.list.len() > 0 {
+    if !all_tasks.list.is_empty() {
         let all_lists = api.get_lists().await?;
         for list in all_lists {
             lists.insert(list.id.clone(), list);

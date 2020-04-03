@@ -60,8 +60,8 @@ use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::from_str;
 
-static MILK_REST_URL: &'static str = "https://api.rememberthemilk.com/services/rest/";
-static MILK_AUTH_URL: &'static str = "https://www.rememberthemilk.com/services/auth/";
+static MILK_REST_URL: &str = "https://api.rememberthemilk.com/services/rest/";
+static MILK_AUTH_URL: &str = "https://www.rememberthemilk.com/services/auth/";
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "err")]
@@ -164,7 +164,7 @@ where
     T: serde::Deserialize<'de>,
 {
     let opt = Option::<String>::deserialize(de)?;
-    let opt = opt.as_ref().map(String::as_str);
+    let opt = opt.as_deref();
     match opt {
         None | Some("") => Ok(None),
         Some(s) => T::deserialize(s.into_deserializer()).map(Some),
