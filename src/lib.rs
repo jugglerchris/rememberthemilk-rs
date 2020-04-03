@@ -1,5 +1,5 @@
 #![deny(warnings)]
-#![deny(missing_docs)]
+//#![deny(missing_docs)]
 //! Interface to the [remember the milk](https://www.rememberthemilk.com/) to-do
 //! app via the [REST API](https://www.rememberthemilk.com/services/api/).
 //!
