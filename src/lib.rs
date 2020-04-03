@@ -1,5 +1,5 @@
 #![deny(warnings)]
-//#![deny(missing_docs)]
+#![deny(missing_docs)]
 //! Interface to the [remember the milk](https://www.rememberthemilk.com/) to-do
 //! app via the [REST API](https://www.rememberthemilk.com/services/api/).
 //!
@@ -310,6 +310,12 @@ pub struct AuthState {
 }
 
 impl API {
+    /// Create a new rememberthemilk API instance, with no user associated.
+    ///
+    /// A user will need to authenticate; see [API::start_auth].
+    ///
+    /// The `api_key` and `api_secret` are for authenticating the application.
+    /// They can be [requested from rememberthemilk](https://www.rememberthemilk.com/services/api/).
     pub fn new(api_key: String, api_secret: String) -> API {
         API {
             api_key,
@@ -319,6 +325,13 @@ impl API {
         }
     }
 
+    /// Create a new rememberthemilk API instance from saved configuration.
+    ///
+    /// The configuration may or may not include a valid user authentication
+    /// token.  If not, then the next step is callnig [API::start_auth].
+    ///
+    /// The `config` will usually be generated from a previous session, where
+    /// [API::to_config] was used to save the session state.
     pub fn from_config(config: RTMConfig) -> API {
         API {
             api_key: config.api_key.unwrap(),
@@ -328,6 +341,16 @@ impl API {
         }
     }
 
+    /// Extract a copy of the rememberthemilk API state.
+    ///
+    /// If a user has been authenticated in this session (or a previous one
+    /// one and restored) then this will include a user authentication token
+    /// as well as the API key and secret.  This can be serialised and used
+    /// next time avoiding having to go through the authentication procedure
+    /// every time.
+    ///
+    /// Note that this contains app and user secrets, so should not be stored
+    /// anywhere where other users may be able to access.
     pub fn to_config(&self) -> RTMConfig {
         RTMConfig {
             api_key: Some(self.api_key.clone()),
@@ -393,6 +416,16 @@ impl API {
         Ok(frob_resp.frob)
     }
 
+    /// Begin user authentication.
+    ///
+    /// If this call is successful (which requires a valid API key and secret,
+    /// and a successful interaction with the rememberthemilk API) then the
+    /// returned [AuthState] contains a URL which a user should open (e.g. by
+    /// a web view or separate web browser instance, redirect, etc.  depending
+    /// on the type of application).
+    ///
+    /// After the user has logged in and authorised the application, you can
+    /// use [API::check_auth] to verify that this was successful.
     pub async fn start_auth(&self) -> Result<AuthState, Error> {
         let frob = self.get_frob().await?;
         let url = self.make_authenticated_url(
@@ -407,6 +440,14 @@ impl API {
         Ok(AuthState { frob, url })
     }
 
+    /// Check whether a user authentication attempt was successful.
+    ///
+    /// This should be called after the user has had a chance to visit the URL
+    /// returned by [API::start_auth].  It can be called multiple times to poll.
+    ///
+    /// If authentication has been successful then a user auth token will be
+    /// available (and retrievable using [API::to_config]) and true will be
+    /// returned.  Other API calls can be made.
     pub async fn check_auth(&mut self, auth: &AuthState) -> Result<bool, Error> {
         let response = self
             .make_authenticated_request(
@@ -429,6 +470,11 @@ impl API {
         Ok(true)
     }
 
+    /// Check whether we have a valid user token.
+    ///
+    /// Returns true if so, false if none, and an error if the token
+    /// is not valid (e.g.  expired).  [API::start_auth] will be needed if
+    /// not successful to re-authenticate the user.
     pub async fn has_token(&self) -> Result<bool, Error> {
         if let Some(ref tok) = self.token {
             let response = self
@@ -451,9 +497,27 @@ impl API {
         }
     }
 
+    /// Retrieve a list of all tasks.
+    ///
+    /// This may be a lot of tasks if the user has been using rememberthemilk
+    /// for some time, and is usually not needed unless exporting or backing
+    /// up the whole thing.
+    ///
+    /// Requires a valid user authentication token.
     pub async fn get_all_tasks(&self) -> Result<RTMTasks, Error> {
         self.get_tasks_filtered("").await
     }
+
+    /// Retrieve a filtered list of tasks.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// Requires a valid user authentication token.
     pub async fn get_tasks_filtered(&self, filter: &str) -> Result<RTMTasks, Error> {
         if let Some(ref tok) = self.token {
             let mut params = vec![
@@ -479,6 +543,9 @@ impl API {
             bail!("Unable to fetch tasks")
         }
     }
+    /// Request a list of rememberthemilk lists.
+    ///
+    /// Requires a valid user authentication token.
     pub async fn get_lists(&self) -> Result<Vec<RTMList>, Error> {
         if let Some(ref tok) = self.token {
             let params = vec![
@@ -501,6 +568,12 @@ impl API {
             bail!("Unable to fetch tasks")
         }
     }
+    /// Request a fresh remember timeline.
+    ///
+    /// A timeline is required for any request which modifies data on the
+    /// server.
+    ///
+    /// Requires a valid user authentication token.
     pub async fn get_timeline(&self) -> Result<RTMTimeline, Error> {
         if let Some(ref tok) = self.token {
             let params = vec![
@@ -524,6 +597,13 @@ impl API {
         }
     }
 
+    /// Add one or more tags to a task.
+    ///
+    /// * `timeline`: a timeline as retrieved using [API::get_timeline]
+    /// * `list`, `taskseries` and `task` identify the task to tag.
+    /// * `tags` is a slice of tags to add to this task.
+    ///
+    /// Requires a valid user authentication token.
     pub async fn add_tag(
         &self,
         timeline: &RTMTimeline,
