@@ -32,7 +32,7 @@
 //!
 //! The rest of the API can then be used:
 //!
-//! ```rust
+//! ``rust
 //! # let api: API = unimplemented!();
 //! let tasks = api.get_all_tasks().await?;
 //! for list in all_tasks.list {
@@ -44,7 +44,7 @@
 //! }
 //! ```
 use chrono::{DateTime, Utc};
-use failure::{bail, Error, Fail};
+use failure::{bail, Error};
 use md5;
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -55,25 +55,31 @@ static MILK_AUTH_URL: &'static str = "https://www.rememberthemilk.com/services/a
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "err")]
+/// Error type for Remember the Milk API calls.
 pub struct RTMError {
     code: isize,
     msg: String,
 }
 
-#[derive(Debug, Fail)]
-pub enum MilkError {
-    #[fail(display = "HTTP error")]
-    HTTPError(#[cause] reqwest::Error),
-}
-
 #[derive(Serialize, Deserialize, Default)]
+/// rememberthemilk API and authentication configuration.
+/// This holds the persistent state for the app authentication
+/// and possibly user authentication.
 pub struct RTMConfig {
+    /// The rememberthemilk API key.  See [RTM API](https://www.rememberthemilk.com/services/api/)
+    /// to request an API key and secret.
     pub api_key: Option<String>,
+    /// The rememberthemilk API secret.  See [RTM API](https://www.rememberthemilk.com/services/api/)
+    /// to request an API key and secret.
     pub api_secret: Option<String>,
+    /// A user authentication token retrieved from rememberthemilk.  This can be `None` but the user
+    /// will need to authenticate before using the API.
     pub token: Option<String>,
+    /// Details of the currently authenticated user.
     pub user: Option<User>,
 }
 
+/// The rememberthemilk API object.  All rememberthemilk operations are done using methods on here.
 pub struct API {
     api_key: String,
     api_secret: String,
