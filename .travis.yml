@@ -10,6 +10,6 @@ matrix:
     - rust: nightly
 cache: cargo
 script:
-  - cargo bulid
+  - cargo build
   - cargo test
   - cargo fmt -- --check
