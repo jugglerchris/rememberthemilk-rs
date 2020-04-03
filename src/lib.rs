@@ -1,3 +1,4 @@
+#![deny(warnings)]
 use md5;
 use failure::{Fail,Error,bail};
 use reqwest;
@@ -325,8 +326,9 @@ impl API {
                 ("api_key".into(), self.api_key.clone()),
                 ("auth_token".into(), tok.clone()),
             ]).await?;
-            // TODO: handle failure
-            let ar = from_str::<RTMResponse<AuthResponse>>(&response).unwrap().rsp;
+            // We don't need to look inside the response as long as we receive one without
+            // error.
+            let _ar = from_str::<RTMResponse<AuthResponse>>(&response)?.rsp;
             Ok(true)
         } else {
             Ok(false)
@@ -411,11 +413,12 @@ impl API {
                 ("tags".into(), tags.join(",")),
             ];
             let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
-            //println!("Got response:\n{}", response);
-            // TODO: handle failure
-            let rsp = from_str::<RTMResponse<AddTagResponse>>(&response).unwrap().rsp;
-            //println!("Add tag transaction: {:?}", rsp.transaction);
-            Ok(())
+            let rsp = from_str::<RTMResponse<AddTagResponse>>(&response)?.rsp;
+            if let Stat::Ok = rsp.stat {
+                Ok(())
+            } else {
+                bail!("Error adding task")
+            }
         } else {
             bail!("Unable to fetch tasks")
         }
