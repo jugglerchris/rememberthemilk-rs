@@ -12,17 +12,22 @@
 //! API key and secret, and authenticate with the API - this means both your
 //! application key and the user's account.
 //!
-//! ```rust
+//! ```no_run
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), failure::Error> {
 //! // Create the API object
-//! let rtm_api = API::new("my key", "my secret");
+//! # use rememberthemilk::API;
+//! let mut rtm_api = API::new("my key".to_string(), "my secret".to_string());
 //! // Begin authentication using your API key
 //! let auth = rtm_api.start_auth().await?;
 //! // auth.url is a URL which the user should visit to authorise the application
 //! // using their rememberthemilk.com account.  The user needs to visit this URL
 //! // and sign in before continuing below.
-//! if api.check_auth(&auth).await? {
+//! if rtm_api.check_auth(&auth).await? {
 //!    // Successful authentication!  Can continue to use the API now.
 //! }
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! If the authentication is successful, the [API](API) object will have an
@@ -32,16 +37,21 @@
 //!
 //! The rest of the API can then be used:
 //!
-//! ``rust
+//! ```no_run
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), failure::Error> {
+//! # use rememberthemilk::API;
 //! # let api: API = unimplemented!();
 //! let tasks = api.get_all_tasks().await?;
-//! for list in all_tasks.list {
+//! for list in tasks.list {
 //!    if let Some(v) = list.taskseries {
 //!        for ts in v {
 //!            println!("  {}", ts.name);
 //!        }
 //!    }
 //! }
+//! # Ok(())
+//! # }
 //! ```
 use chrono::{DateTime, Utc};
 use failure::{bail, Error};
