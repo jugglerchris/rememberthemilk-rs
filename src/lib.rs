@@ -8,8 +8,8 @@
 //! key](https://www.rememberthemilk.com/services/api/), which is not included
 //! with the crate.
 //!
-//! Before doing anything else, you need to get an [API](API) object which needs
-//! your API key and secret, and authenticate with the API - this means both your
+//! Before doing anything else, you need to get an [API] object which needs your
+//! API key and secret, and authenticate with the API - this means both your
 //! application key and the user's account.
 //!
 //! ```rust
@@ -33,7 +33,7 @@
 //! The rest of the API can then be used:
 //!
 //! ```rust
-//! #let api: API = unimplemented!();
+//! # let api: API = unimplemented!();
 //! let tasks = api.get_all_tasks().await?;
 //! for list in all_tasks.list {
 //!    if let Some(v) = list.taskseries {
