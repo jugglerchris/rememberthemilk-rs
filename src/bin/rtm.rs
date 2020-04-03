@@ -1,5 +1,4 @@
 #![deny(warnings)]
-use confy;
 use failure::bail;
 use rememberthemilk::API;
 use std::{collections::HashMap, env};

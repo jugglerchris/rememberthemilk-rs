@@ -55,8 +55,6 @@
 //! ```
 use chrono::{DateTime, Utc};
 use failure::{bail, Error};
-use md5;
-use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::from_str;
 
