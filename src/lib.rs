@@ -229,8 +229,7 @@ pub struct Task {
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 /// The response from fetching a list of tasks.
 pub struct RTMTasks {
-    /// The response "rev" field.
-    pub rev: String,
+    rev: String,
     #[serde(default)]
     /// The list of tasks.
     pub list: Vec<RTMLists>,
