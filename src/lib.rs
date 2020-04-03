@@ -112,6 +112,7 @@ enum Perms {
 }
 
 #[derive(Deserialize, Serialize, Debug, Eq, PartialEq, Clone)]
+/// Information about a rememberthemilk user.
 pub struct User {
     id: String,
     username: String,
@@ -190,21 +191,39 @@ where
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
-pub struct Task {
+/// A rememberthemilk Task Series.  This corresponds to a single to-do item,
+/// and has the fields such as name and tags.  It also may contain some
+/// [Task]s, each of which is an instance of a possibly recurring or
+/// repeating task.
+pub struct TaskSeries {
+    /// The task series' unique id within its list.
     pub id: String,
-    #[serde(deserialize_with = "empty_string_as_none")]
-    pub due: Option<DateTime<Utc>>,
+    /// The name of the task.
+    pub name: String,
+    /// The creation time.
+    pub created: DateTime<Utc>,
+    /// The last modification time.
+    pub modified: DateTime<Utc>,
+    /// The tasks within this series, if any.
+    pub task: Vec<Task>,
+    #[serde(deserialize_with = "deser_tags")]
+    /// A list of the tags attached to this task series.
+    pub tags: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
-pub struct TaskSeries {
+/// A rememberthemilk Task.  In rememberthemilk a task is
+/// a specific instance of a possibly repeating item.  For
+/// example, a weekly task to take out the bins is
+/// represented as a single [TaskSeries] with a different
+/// [Task] every week.  A Task's main characteristic is a
+/// due date.
+pub struct Task {
+    /// The task's unique (within the list and task series) id.
     pub id: String,
-    pub name: String,
-    pub created: DateTime<Utc>,
-    pub modified: DateTime<Utc>,
-    pub task: Vec<Task>,
-    #[serde(deserialize_with = "deser_tags")]
-    pub tags: Vec<String>,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    /// The task's due date, if any.
+    pub due: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
