@@ -1,11 +1,10 @@
+use super::*;
+use chrono::TimeZone;
 #[cfg(test)]
 use serde_json::{from_str, to_string};
-use chrono::TimeZone;
-use super::*;
 
 #[test]
-fn deser_check_token()
-{
+fn deser_check_token() {
     let json_rsp = r#"{"rsp":{"stat":"ok","auth":{"token":"410c57262293e9d937ee5be75eb7b0128fd61b61","perms":"delete","user":{"id":"1","username":"bob","fullname":"Bob T. Monkey"}}}}"#;
     let expected = AuthResponse {
         stat: Stat::Ok,
@@ -16,7 +15,7 @@ fn deser_check_token()
                 id: "1".into(),
                 username: "bob".into(),
                 fullname: "Bob T. Monkey".into(),
-            }
+            },
         },
     };
     println!("{}", to_string(&expected).unwrap());
@@ -26,8 +25,7 @@ fn deser_check_token()
 }
 
 #[test]
-fn test_deser_taskseries()
-{
+fn test_deser_taskseries() {
     let json = r#"
            {"id":"blahid",
             "created":"2020-01-01T16:00:00Z",
@@ -43,18 +41,16 @@ fn test_deser_taskseries()
               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
             ]
            }"#;
-//        println!("{}", json);
+    //        println!("{}", json);
     let expected = TaskSeries {
         id: "blahid".into(),
         name: "Do the thing".into(),
         created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
         modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
-        task: vec![
-            Task {
-                id: "my_task_id".into(),
-                due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
-            },
-        ],
+        task: vec![Task {
+            id: "my_task_id".into(),
+            due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
+        }],
         tags: vec!["computer".into()],
     };
     println!("{}", to_string(&expected).unwrap());
@@ -63,12 +59,11 @@ fn test_deser_taskseries()
 }
 
 #[test]
-fn test_deser_task()
-{
+fn test_deser_task() {
     let json = r#"
               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
 "#;
-//        println!("{}", json);
+    //        println!("{}", json);
     let expected = Task {
         id: "my_task_id".into(),
         due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
@@ -79,12 +74,11 @@ fn test_deser_task()
 }
 
 #[test]
-fn test_deser_task_nodue()
-{
+fn test_deser_task_nodue() {
     let json = r#"
               {"id":"my_task_id","due":"","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
 "#;
-//        println!("{}", json);
+    //        println!("{}", json);
     let expected = Task {
         id: "my_task_id".into(),
         due: None,
@@ -95,8 +89,7 @@ fn test_deser_task_nodue()
 }
 
 #[test]
-fn test_deser_tag1()
-{
+fn test_deser_tag1() {
     let json = r#"
            {"id":"blahid",
             "created":"2020-01-01T16:00:00Z",
@@ -119,8 +112,7 @@ fn test_deser_tag1()
 }
 
 #[test]
-fn test_deser_tasklist_response()
-{
+fn test_deser_tasklist_response() {
     let json = r#"{"rsp": { "stat": "ok",
            "tasks": {"rev": "my_rev",
                      "list": [
@@ -141,31 +133,25 @@ fn test_deser_tasklist_response()
                              ]}
                          ]}
                      ]}}}"#;
-//        println!("{}", json);
+    //        println!("{}", json);
     let expected = TasksResponse {
         stat: Stat::Ok,
         tasks: RTMTasks {
             rev: "my_rev".into(),
-            list: vec![
-                RTMLists {
-                    id: "my_list_id".into(),
-                    taskseries: Some(vec![
-                        TaskSeries {
-                            id: "blahid".into(),
-                            name: "Do the thing".into(),
-                            created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
-                            modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
-                            task: vec![
-                                Task {
-                                    id: "my_task_id".into(),
-                                    due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
-                                },
-                            ],
-                            tags: vec!["computer".into()],
-                        }
-                    ]),
-                }
-            ],
+            list: vec![RTMLists {
+                id: "my_list_id".into(),
+                taskseries: Some(vec![TaskSeries {
+                    id: "blahid".into(),
+                    name: "Do the thing".into(),
+                    created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
+                    modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
+                    task: vec![Task {
+                        id: "my_task_id".into(),
+                        due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
+                    }],
+                    tags: vec!["computer".into()],
+                }]),
+            }],
         },
     };
     println!("{}", to_string(&expected).unwrap());

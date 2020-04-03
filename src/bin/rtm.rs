@@ -1,10 +1,10 @@
-use failure::bail;
-use structopt::StructOpt;
 use confy;
+use failure::bail;
 use rememberthemilk::API;
-use std::{env, collections::HashMap};
+use std::{collections::HashMap, env};
+use structopt::StructOpt;
 
-#[derive(StructOpt,Debug)]
+#[derive(StructOpt, Debug)]
 enum Command {
     /// Operate on tasks
     Tasks {
@@ -18,17 +18,16 @@ enum Command {
         tag: String,
         #[structopt(long)]
         filter: String,
-    }
+    },
 }
 
-#[derive(StructOpt,Debug)]
+#[derive(StructOpt, Debug)]
 struct Opt {
     #[structopt(subcommand)]
     cmd: Command,
 }
 
-async fn get_rtm_api() -> Result<API, failure::Error>
-{
+async fn get_rtm_api() -> Result<API, failure::Error> {
     let config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
         let api = API::from_config(config);
@@ -61,8 +60,7 @@ async fn get_rtm_api() -> Result<API, failure::Error>
     Ok(api)
 }
 
-async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error>
-{
+async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error> {
     let api = get_rtm_api().await?;
     let filter = match filter {
         Some(ref s) => &s[..],
@@ -90,8 +88,7 @@ async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error>
     Ok(())
 }
 
-async fn list_lists() -> Result<(), failure::Error>
-{
+async fn list_lists() -> Result<(), failure::Error> {
     let api = get_rtm_api().await?;
     let all_lists = api.get_lists().await?;
     for list in all_lists {
@@ -100,8 +97,7 @@ async fn list_lists() -> Result<(), failure::Error>
     Ok(())
 }
 
-async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error>
-{
+async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error> {
     let api = get_rtm_api().await?;
     let timeline = api.get_timeline().await?;
     let tasks = api.get_tasks_filtered(&filter).await?;
@@ -112,7 +108,8 @@ async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error>
                 let to_tag = !ts.tags.contains(&tag);
                 if to_tag {
                     println!("  Adding tag to {}...", ts.name);
-                    api.add_tag(&timeline, &list, &ts, &ts.task[0], &[&tag[..]]).await?;
+                    api.add_tag(&timeline, &list, &ts, &ts.task[0], &[&tag[..]])
+                        .await?;
                 }
             }
         }
@@ -121,19 +118,12 @@ async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error>
 }
 
 #[tokio::main]
-async fn main() -> Result<(), failure::Error>
-{
+async fn main() -> Result<(), failure::Error> {
     let opt = Opt::from_args();
     match opt.cmd {
-        Command::Tasks { filter } => {
-            list_tasks(filter).await?
-        }
-        Command::Lists => {
-            list_lists().await?
-        }
-        Command::AddTag { filter, tag } => {
-            add_tag(filter, tag).await?
-        }
+        Command::Tasks { filter } => list_tasks(filter).await?,
+        Command::Lists => list_lists().await?,
+        Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
     }
 
     Ok(())

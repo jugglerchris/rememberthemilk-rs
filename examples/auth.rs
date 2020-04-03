@@ -1,11 +1,10 @@
-use failure::bail;
-use std::env;
-use rememberthemilk::API;
 use confy;
+use failure::bail;
+use rememberthemilk::API;
+use std::env;
 
 #[tokio::main]
-async fn main() -> Result<(), failure::Error>
-{
+async fn main() -> Result<(), failure::Error> {
     let config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
         let api = API::from_config(config);

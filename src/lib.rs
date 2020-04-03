@@ -1,10 +1,10 @@
 #![deny(warnings)]
-use md5;
-use failure::{Fail,Error,bail};
-use reqwest;
-use serde_json::{from_str};
 use chrono::{DateTime, Utc};
+use failure::{bail, Error, Fail};
+use md5;
+use reqwest;
 use serde::{Deserialize, Serialize};
+use serde_json::from_str;
 
 static MILK_REST_URL: &'static str = "https://api.rememberthemilk.com/services/rest/";
 static MILK_AUTH_URL: &'static str = "https://www.rememberthemilk.com/services/auth/";
@@ -16,7 +16,7 @@ pub struct RTMError {
     msg: String,
 }
 
-#[derive(Debug,Fail)]
+#[derive(Debug, Fail)]
 pub enum MilkError {
     #[fail(display = "HTTP error")]
     HTTPError(#[cause] reqwest::Error),
@@ -43,22 +43,22 @@ struct FrobResponse {
     frob: String,
 }
 
-#[derive(Deserialize, Serialize, Debug,Eq, PartialEq)]
-#[serde(rename_all="lowercase")]
+#[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
 enum Perms {
     Read,
     Write,
     Delete,
 }
 
-#[derive(Deserialize, Serialize, Debug,Eq, PartialEq, Clone)]
+#[derive(Deserialize, Serialize, Debug, Eq, PartialEq, Clone)]
 pub struct User {
     id: String,
     username: String,
     fullname: String,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "auth")]
 struct Auth {
     token: String,
@@ -66,14 +66,14 @@ struct Auth {
     user: User,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 enum Stat {
     Ok,
     Fail,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct AuthResponse {
     stat: Stat,
     auth: Auth,
@@ -106,11 +106,11 @@ where
     let opt = opt.as_ref().map(String::as_str);
     match opt {
         None | Some("") => Ok(None),
-        Some(s) => T::deserialize(s.into_deserializer()).map(Some)
+        Some(s) => T::deserialize(s.into_deserializer()).map(Some),
     }
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(untagged)]
 enum TagSer {
     List(Vec<()>),
@@ -129,14 +129,14 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Task {
     pub id: String,
     #[serde(deserialize_with = "empty_string_as_none")]
     pub due: Option<DateTime<Utc>>,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct TaskSeries {
     pub id: String,
     pub name: String,
@@ -147,62 +147,62 @@ pub struct TaskSeries {
     pub tags: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct RTMTasks {
     pub rev: String,
     #[serde(default)]
     pub list: Vec<RTMLists>,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct RTMLists {
     pub id: String,
     pub taskseries: Option<Vec<TaskSeries>>,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct TasksResponse {
     stat: Stat,
     tasks: RTMTasks,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "list")]
 pub struct RTMList {
     pub id: String,
     pub name: String,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct ListContainer {
     list: Vec<RTMList>,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct ListsResponse {
     stat: Stat,
     lists: ListContainer,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct Transaction {
     id: String,
     undoable: String,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct AddTagResponse {
     stat: Stat,
     transaction: Transaction,
     list: RTMLists,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct RTMResponse<T> {
     rsp: T,
 }
 
-#[derive(Serialize, Deserialize, Debug,Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct TimelineResponse {
     stat: Stat,
     timeline: String,
@@ -243,8 +243,7 @@ impl API {
         }
     }
 
-    fn sign_keys(&self, keys: &[(String, String)]) -> String
-    {
+    fn sign_keys(&self, keys: &[(String, String)]) -> String {
         let mut my_keys = keys.iter().collect::<Vec<&(String, String)>>();
         my_keys.sort();
         let mut to_sign = self.api_secret.clone();
@@ -272,47 +271,65 @@ impl API {
         url
     }
 
-    async fn make_authenticated_request(&self, url: &'static str, keys: Vec<(String, String)>) -> Result<String, failure::Error> {
+    async fn make_authenticated_request(
+        &self,
+        url: &'static str,
+        keys: Vec<(String, String)>,
+    ) -> Result<String, failure::Error> {
         let url = self.make_authenticated_url(url, keys);
-        let body = reqwest::get(&url)
-                    .await?
-                    .text()
-                    .await?;
+        let body = reqwest::get(&url).await?.text().await?;
         //println!("Body={}", body);
         Ok(body)
     }
 
     async fn get_frob(&self) -> Result<String, Error> {
-        let response = self.make_authenticated_request(MILK_REST_URL, vec![
-            ("method".into(), "rtm.auth.getFrob".into()),
-            ("format".into(), "json".into()),
-            ("api_key".into(), self.api_key.clone())
-        ]).await?;
-        let frob_resp = from_str::<RTMResponse<FrobResponse>>(&response).unwrap().rsp;
+        let response = self
+            .make_authenticated_request(
+                MILK_REST_URL,
+                vec![
+                    ("method".into(), "rtm.auth.getFrob".into()),
+                    ("format".into(), "json".into()),
+                    ("api_key".into(), self.api_key.clone()),
+                ],
+            )
+            .await?;
+        let frob_resp = from_str::<RTMResponse<FrobResponse>>(&response)
+            .unwrap()
+            .rsp;
         Ok(frob_resp.frob)
     }
 
     pub async fn start_auth(&self) -> Result<AuthState, Error> {
         let frob = self.get_frob().await?;
-        let url = self.make_authenticated_url(MILK_AUTH_URL, vec![
-            ("api_key".into(), self.api_key.clone()),
-            ("format".into(), "json".into()),
-            ("perms".into(), "write".into()),
-            ("frob".into(), frob.clone())
-        ]);
+        let url = self.make_authenticated_url(
+            MILK_AUTH_URL,
+            vec![
+                ("api_key".into(), self.api_key.clone()),
+                ("format".into(), "json".into()),
+                ("perms".into(), "write".into()),
+                ("frob".into(), frob.clone()),
+            ],
+        );
         Ok(AuthState { frob, url })
     }
 
     pub async fn check_auth(&mut self, auth: &AuthState) -> Result<bool, Error> {
-        let response = self.make_authenticated_request(MILK_REST_URL, vec![
-            ("method".into(), "rtm.auth.getToken".into()),
-            ("format".into(), "json".into()),
-            ("api_key".into(), self.api_key.clone()),
-            ("frob".into(), auth.frob.clone()),
-        ]).await?;
+        let response = self
+            .make_authenticated_request(
+                MILK_REST_URL,
+                vec![
+                    ("method".into(), "rtm.auth.getToken".into()),
+                    ("format".into(), "json".into()),
+                    ("api_key".into(), self.api_key.clone()),
+                    ("frob".into(), auth.frob.clone()),
+                ],
+            )
+            .await?;
 
         //println!("{:?}", response);
-        let auth_rep = from_str::<RTMResponse<AuthResponse>>(&response).unwrap().rsp;
+        let auth_rep = from_str::<RTMResponse<AuthResponse>>(&response)
+            .unwrap()
+            .rsp;
         self.token = Some(auth_rep.auth.token);
         self.user = Some(auth_rep.auth.user);
         Ok(true)
@@ -320,12 +337,17 @@ impl API {
 
     pub async fn has_token(&self) -> Result<bool, Error> {
         if let Some(ref tok) = self.token {
-            let response = self.make_authenticated_request(MILK_REST_URL, vec![
-                ("method".into(), "rtm.auth.checkToken".into()),
-                ("format".into(), "json".into()),
-                ("api_key".into(), self.api_key.clone()),
-                ("auth_token".into(), tok.clone()),
-            ]).await?;
+            let response = self
+                .make_authenticated_request(
+                    MILK_REST_URL,
+                    vec![
+                        ("method".into(), "rtm.auth.checkToken".into()),
+                        ("format".into(), "json".into()),
+                        ("api_key".into(), self.api_key.clone()),
+                        ("auth_token".into(), tok.clone()),
+                    ],
+                )
+                .await?;
             // We don't need to look inside the response as long as we receive one without
             // error.
             let _ar = from_str::<RTMResponse<AuthResponse>>(&response)?.rsp;
@@ -337,7 +359,6 @@ impl API {
 
     pub async fn get_all_tasks(&self) -> Result<RTMTasks, Error> {
         self.get_tasks_filtered("").await
-        
     }
     pub async fn get_tasks_filtered(&self, filter: &str) -> Result<RTMTasks, Error> {
         if let Some(ref tok) = self.token {
@@ -350,10 +371,15 @@ impl API {
             if filter != "" {
                 params.push(("filter".into(), filter.into()));
             }
-            let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
+            let response = self
+                .make_authenticated_request(MILK_REST_URL, params)
+                .await?;
             //println!("Got response:\n{}", response);
             // TODO: handle failure
-            let tasklist = from_str::<RTMResponse<TasksResponse>>(&response).unwrap().rsp.tasks;
+            let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
+                .unwrap()
+                .rsp
+                .tasks;
             Ok(tasklist)
         } else {
             bail!("Unable to fetch tasks")
@@ -367,10 +393,15 @@ impl API {
                 ("api_key".into(), self.api_key.clone()),
                 ("auth_token".into(), tok.clone()),
             ];
-            let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
+            let response = self
+                .make_authenticated_request(MILK_REST_URL, params)
+                .await?;
             //println!("Got response:\n{}", response);
             // TODO: handle failure
-            let lists = from_str::<RTMResponse<ListsResponse>>(&response).unwrap().rsp.lists;
+            let lists = from_str::<RTMResponse<ListsResponse>>(&response)
+                .unwrap()
+                .rsp
+                .lists;
             Ok(lists.list)
         } else {
             bail!("Unable to fetch tasks")
@@ -384,22 +415,29 @@ impl API {
                 ("api_key".into(), self.api_key.clone()),
                 ("auth_token".into(), tok.clone()),
             ];
-            let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
+            let response = self
+                .make_authenticated_request(MILK_REST_URL, params)
+                .await?;
             //println!("Got response:\n{}", response);
             // TODO: handle failure
-            let tl = from_str::<RTMResponse<TimelineResponse>>(&response).unwrap().rsp.timeline;
+            let tl = from_str::<RTMResponse<TimelineResponse>>(&response)
+                .unwrap()
+                .rsp
+                .timeline;
             Ok(RTMTimeline(tl))
         } else {
             bail!("Unable to fetch tasks")
         }
     }
 
-    pub async fn add_tag(&self,
-                         timeline: &RTMTimeline,
-                         list: &RTMLists,
-                         taskseries: &TaskSeries,
-                         task: &Task,
-                         tags: &[&str]) -> Result<(), Error> {
+    pub async fn add_tag(
+        &self,
+        timeline: &RTMTimeline,
+        list: &RTMLists,
+        taskseries: &TaskSeries,
+        task: &Task,
+        tags: &[&str],
+    ) -> Result<(), Error> {
         if let Some(ref tok) = self.token {
             let params = vec![
                 ("method".into(), "rtm.tasks.addTags".into()),
@@ -412,7 +450,9 @@ impl API {
                 ("task_id".into(), task.id.clone()),
                 ("tags".into(), tags.join(",")),
             ];
-            let response = self.make_authenticated_request(MILK_REST_URL, params).await?;
+            let response = self
+                .make_authenticated_request(MILK_REST_URL, params)
+                .await?;
             let rsp = from_str::<RTMResponse<AddTagResponse>>(&response)?.rsp;
             if let Stat::Ok = rsp.stat {
                 Ok(())
@@ -427,4 +467,3 @@ impl API {
 
 #[cfg(test)]
 mod tests;
-
