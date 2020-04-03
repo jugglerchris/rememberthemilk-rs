@@ -33,7 +33,7 @@ async fn main() -> Result<(), failure::Error>
         if !api.check_auth(&auth).await? {
             bail!("Error authenticating");
         }
-        confy::store("rtm_auth_example", api.to_config());
+        confy::store("rtm_auth_example", api.to_config())?;
     };
     println!("Getting all tasks...");
     println!("{:?}", api.get_all_tasks().await?);
