@@ -1,4 +1,48 @@
 #![deny(warnings)]
+#![deny(missing_docs)]
+//! Interface to the [remember the milk](https://www.rememberthemilk.com/) to-do
+//! app via the [REST API](https://www.rememberthemilk.com/services/api/).
+//!
+//! This crate is unofficial and not not supported by remember the milk.  To use
+//! it, you will need a free for non-commercial use [API
+//! key](https://www.rememberthemilk.com/services/api/), which is not included
+//! with the crate.
+//!
+//! Before doing anything else, you need to get an [API](API) object which needs
+//! your API key and secret, and authenticate with the API - this means both your
+//! application key and the user's account.
+//!
+//! ```rust
+//! // Create the API object
+//! let rtm_api = API::new("my key", "my secret");
+//! // Begin authentication using your API key
+//! let auth = rtm_api.start_auth().await?;
+//! // auth.url is a URL which the user should visit to authorise the application
+//! // using their rememberthemilk.com account.  The user needs to visit this URL
+//! // and sign in before continuing below.
+//! if api.check_auth(&auth).await? {
+//!    // Successful authentication!  Can continue to use the API now.
+//! }
+//! ```
+//!
+//! If the authentication is successful, the [API](API) object will have an
+//! authentication token which can be re-used later.  See [to_config](API::to_config)
+//! and [from_config](API::from_config) which can be used to save the token and
+//! API keys (so they should be stored somewhere relatively secure).
+//!
+//! The rest of the API can then be used:
+//!
+//! ```rust
+//! #let api: API = unimplemented!();
+//! let tasks = api.get_all_tasks().await?;
+//! for list in all_tasks.list {
+//!    if let Some(v) = list.taskseries {
+//!        for ts in v {
+//!            println!("  {}", ts.name);
+//!        }
+//!    }
+//! }
+//! ```
 use chrono::{DateTime, Utc};
 use failure::{bail, Error, Fail};
 use md5;
