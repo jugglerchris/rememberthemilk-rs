@@ -227,15 +227,21 @@ pub struct Task {
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+/// The response from fetching a list of tasks.
 pub struct RTMTasks {
+    /// The response "rev" field.
     pub rev: String,
     #[serde(default)]
+    /// The list of tasks.
     pub list: Vec<RTMLists>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+/// A container for a list of task series.
 pub struct RTMLists {
+    /// The unique id for this list of tasks series.
     pub id: String,
+    /// The task series themselves.
     pub taskseries: Option<Vec<TaskSeries>>,
 }
 
@@ -247,8 +253,11 @@ struct TasksResponse {
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "list")]
+/// The details of a list of to-do items.
 pub struct RTMList {
+    /// The list's unique ID.
     pub id: String,
+    /// The name of this list.
     pub name: String,
 }
 
@@ -287,10 +296,17 @@ struct TimelineResponse {
     timeline: String,
 }
 
+/// Handle to a rememberthemilk timeline.
+///
+/// This is required for API calls which can modify state.  They can also
+/// be used to undo (within a timeline) but this is not yet implemented.
 pub struct RTMTimeline(String);
 
+/// The state of an ongoing user authentication attempt.
 pub struct AuthState {
     frob: String,
+    /// The URL to which the user should be sent.  They will be asked
+    /// to log in to rememberthemilk and allow the application access.
     pub url: String,
 }
 
