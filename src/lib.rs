@@ -16,10 +16,10 @@
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), failure::Error> {
 //! // Create the API object
-//! # use rememberthemilk::API;
+//! # use rememberthemilk::{API, Perms};
 //! let mut rtm_api = API::new("my key".to_string(), "my secret".to_string());
 //! // Begin authentication using your API key
-//! let auth = rtm_api.start_auth().await?;
+//! let auth = rtm_api.start_auth(Perms::Read).await?;
 //! // auth.url is a URL which the user should visit to authorise the application
 //! // using their rememberthemilk.com account.  The user needs to visit this URL
 //! // and sign in before continuing below.
@@ -87,6 +87,14 @@ pub struct RTMConfig {
     pub user: Option<User>,
 }
 
+impl RTMConfig {
+    /// Clear any user-specific data (auth tokens, user info, etc.)
+    pub fn clear_user_data(&mut self) {
+        self.token = None;
+        self.user = None;
+    }
+}
+
 /// The rememberthemilk API object.  All rememberthemilk operations are done using methods on here.
 pub struct API {
     api_key: String,
@@ -101,12 +109,54 @@ struct FrobResponse {
     frob: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Eq, PartialEq, Copy, Clone)]
 #[serde(rename_all = "lowercase")]
-enum Perms {
+/// rememberthemilk API permissions.
+pub enum Perms {
+    /// Permission to read the user's tasks and other data
     Read,
+    /// Permission to modify the user's tasks and other data, but
+    /// not to delete tasks.  This includes Read permission.
     Write,
+    /// Permission to modify the user's tasks and other data, including
+    /// deleting tasks.
     Delete,
+}
+
+impl Perms {
+    /// Return true if this permission includes the rights to do `other`.
+    fn includes(self, other: Perms) -> bool {
+        match (self, other) {
+            (Self::Delete, _)
+            | (Self::Write, Self::Read)
+            | (Self::Write, Self::Write)
+            | (Self::Read, Self::Read) => true,
+            _ => false,
+        }
+    }
+}
+
+impl ToString for Perms {
+    fn to_string(&self) -> String {
+        (match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Delete => "delete",
+        })
+        .to_string()
+    }
+}
+
+impl std::str::FromStr for Perms {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "read" => Ok(Self::Read),
+            "write" => Ok(Self::Write),
+            "delete" => Ok(Self::Delete),
+            _ => Err("Invalid perms string".into()),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Eq, PartialEq, Clone)]
@@ -429,14 +479,14 @@ impl API {
     ///
     /// After the user has logged in and authorised the application, you can
     /// use [API::check_auth] to verify that this was successful.
-    pub async fn start_auth(&self) -> Result<AuthState, Error> {
+    pub async fn start_auth(&self, perm: Perms) -> Result<AuthState, Error> {
         let frob = self.get_frob().await?;
         let url = self.make_authenticated_url(
             MILK_AUTH_URL,
             vec![
                 ("api_key".into(), self.api_key.clone()),
                 ("format".into(), "json".into()),
-                ("perms".into(), "write".into()),
+                ("perms".into(), perm.to_string()),
                 ("frob".into(), frob.clone()),
             ],
         );
@@ -473,12 +523,13 @@ impl API {
         Ok(true)
     }
 
-    /// Check whether we have a valid user token.
+    /// Check whether we have a valid user token with the provided permission
+    /// level.
     ///
     /// Returns true if so, false if none, and an error if the token
     /// is not valid (e.g.  expired).  [API::start_auth] will be needed if
     /// not successful to re-authenticate the user.
-    pub async fn has_token(&self) -> Result<bool, Error> {
+    pub async fn has_token(&self, perm: Perms) -> Result<bool, Error> {
         if let Some(ref tok) = self.token {
             let response = self
                 .make_authenticated_request(
@@ -491,10 +542,8 @@ impl API {
                     ],
                 )
                 .await?;
-            // We don't need to look inside the response as long as we receive one without
-            // error.
-            let _ar = from_str::<RTMResponse<AuthResponse>>(&response)?.rsp;
-            Ok(true)
+            let ar = from_str::<RTMResponse<AuthResponse>>(&response)?.rsp;
+            Ok(ar.auth.perms.includes(perm))
         } else {
             Ok(false)
         }

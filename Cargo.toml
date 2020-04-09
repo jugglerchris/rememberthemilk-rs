@@ -15,7 +15,7 @@ failure = "*"
 md5 = "0.7"
 chrono = {version = "*", features = ["serde"] }
 structopt = "0.3"
-confy = "0.3"
+confy = "0.4"
 
 [[bin]]
 name = "rtm"

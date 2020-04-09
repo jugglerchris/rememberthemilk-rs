@@ -1,6 +1,6 @@
 use confy;
 use failure::bail;
-use rememberthemilk::API;
+use rememberthemilk::{Perms, API};
 use std::env;
 
 #[tokio::main]
@@ -18,8 +18,8 @@ async fn main() -> Result<(), failure::Error> {
         api
     };
 
-    if !api.has_token().await.unwrap() {
-        let auth = api.start_auth().await?;
+    if !api.has_token(Perms::Read).await.unwrap() {
+        let auth = api.start_auth(Perms::Read).await?;
         println!("auth_url: {}", auth.url);
         println!("Press enter when authorised...");
         {
