@@ -48,7 +48,7 @@ async fn get_rtm_api(perm: Perms) -> Result<API, failure::Error> {
     };
 
     if !api.has_token(perm).await.unwrap() {
-        eprintln!("Don't have token - need to fix");
+        println!("We don't have the correct permissions - trying to authenticate.");
         auth_user(&mut api, perm).await?;
     };
     Ok(api)
