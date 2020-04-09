@@ -278,10 +278,15 @@ struct Transaction {
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct AddTagResponse {
     stat: Stat,
-    transaction: Transaction,
     list: RTMLists,
 }
 
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+struct AddTaskResponse {
+    stat: Stat,
+    transaction: Transaction,
+    list: RTMLists,
+}
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct RTMResponse<T> {
     rsp: T,
@@ -530,7 +535,7 @@ impl API {
             let response = self
                 .make_authenticated_request(MILK_REST_URL, params)
                 .await?;
-            //println!("Got response:\n{}", response);
+            //eprintln!("Got response:\n{}", response);
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
                 .unwrap()
@@ -626,6 +631,56 @@ impl API {
                 .make_authenticated_request(MILK_REST_URL, params)
                 .await?;
             let rsp = from_str::<RTMResponse<AddTagResponse>>(&response)?.rsp;
+            if let Stat::Ok = rsp.stat {
+                Ok(())
+            } else {
+                bail!("Error adding task")
+            }
+        } else {
+            bail!("Unable to fetch tasks")
+        }
+    }
+
+    /// Add a new task
+    ///
+    /// * `timeline`: a timeline as retrieved using [API::get_timeline]
+    /// * `name`: the new task's name
+    /// * `list`: the optional list into which the task should go
+    /// * `parent`: If specified, the parent task for the new task (pro accounts only)
+    /// * `external_id`: An id which can be attached to this task.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn add_task(
+        &self,
+        timeline: &RTMTimeline,
+        name: &str,
+        list: Option<&RTMLists>,
+        parent: Option<&Task>,
+        external_id: Option<&str>,
+    ) -> Result<(), Error> {
+        if let Some(ref tok) = self.token {
+            let mut params = vec![
+                ("method".into(), "rtm.tasks.add".into()),
+                ("format".into(), "json".into()),
+                ("api_key".into(), self.api_key.clone()),
+                ("auth_token".into(), tok.clone()),
+                ("timeline".into(), timeline.0.clone()),
+                ("name".into(), name.into()),
+            ];
+            if let Some(list) = list {
+                params.push(("list_id".into(), list.id.clone()));
+            }
+            if let Some(parent) = parent {
+                params.push(("task_id".into(), parent.id.clone()));
+            }
+            if let Some(external_id) = external_id {
+                params.push(("external_id".into(), external_id.into()));
+            }
+            let response = self
+                .make_authenticated_request(MILK_REST_URL, params)
+                .await?;
+            eprintln!("Add task response: {}", response);
+            let rsp = from_str::<RTMResponse<AddTaskResponse>>(&response)?.rsp;
             if let Stat::Ok = rsp.stat {
                 Ok(())
             } else {
