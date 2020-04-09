@@ -16,10 +16,10 @@
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), failure::Error> {
 //! // Create the API object
-//! # use rememberthemilk::API;
+//! # use rememberthemilk::{API, Perms};
 //! let mut rtm_api = API::new("my key".to_string(), "my secret".to_string());
 //! // Begin authentication using your API key
-//! let auth = rtm_api.start_auth().await?;
+//! let auth = rtm_api.start_auth(Perms::Read).await?;
 //! // auth.url is a URL which the user should visit to authorise the application
 //! // using their rememberthemilk.com account.  The user needs to visit this URL
 //! // and sign in before continuing below.
