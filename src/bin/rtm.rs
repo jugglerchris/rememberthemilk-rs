@@ -1,7 +1,7 @@
 #![deny(warnings)]
 use failure::bail;
 use rememberthemilk::API;
-use std::{collections::HashMap, env};
+use std::{collections::HashMap};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -23,6 +23,11 @@ enum Command {
     AddTask {
         name: String,
     },
+    /// Authorise the app
+    AuthApp {
+        key: String,
+        secret: String,
+    },
 }
 
 #[derive(StructOpt, Debug)]
@@ -36,30 +41,40 @@ async fn get_rtm_api() -> Result<API, failure::Error> {
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
         API::from_config(config)
     } else {
-        let args: Vec<String> = env::args().collect();
-        let api_key = args[1].clone();
-        let api_secret = args[2].clone();
-
-        API::new(api_key, api_secret)
+        eprintln!("Error, no API key saved.  Use `rtm auth-app` to supply them.");
+        bail!("No auth key");
     };
 
     if !api.has_token().await.unwrap() {
-        let auth = api.start_auth().await?;
-        println!("auth_url: {}", auth.url);
-        println!("Press enter when authorised...");
-        {
-            use std::io::BufRead;
-            let stdin = std::io::stdin();
-            let mut lines = stdin.lock().lines();
-            lines.next().unwrap().unwrap();
-        }
-
-        if !api.check_auth(&auth).await? {
-            bail!("Error authenticating");
-        }
-        confy::store("rtm_auth_example", api.to_config())?;
+        auth_user(&mut api).await?;
     };
     Ok(api)
+}
+
+async fn auth_user(api: &mut API) -> Result<(), failure::Error> {
+    let auth = api.start_auth().await?;
+    println!("auth_url: {}", auth.url);
+    println!("Press enter when authorised...");
+    {
+        use std::io::BufRead;
+        let stdin = std::io::stdin();
+        let mut lines = stdin.lock().lines();
+        lines.next().unwrap().unwrap();
+    }
+
+    if !api.check_auth(&auth).await? {
+        bail!("Error authenticating");
+    }
+    confy::store("rtm_auth_example", api.to_config())?;
+    Ok(())
+}
+
+async fn auth_app(key: String, secret: String) -> Result<(), failure::Error> {
+    let mut api = API::new(key, secret);
+
+    auth_user(&mut api).await?;
+    println!("Successfully authenticated.");
+    Ok(())
 }
 
 async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error> {
@@ -135,6 +150,7 @@ async fn main() -> Result<(), failure::Error> {
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
         Command::AddTask { name } => add_task(name).await?,
+        Command::AuthApp { key, secret } => auth_app(key, secret).await?,
     }
 
     Ok(())
