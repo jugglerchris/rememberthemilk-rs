@@ -535,7 +535,7 @@ impl API {
             let response = self
                 .make_authenticated_request(MILK_REST_URL, params)
                 .await?;
-            //println!("Got response:\n{}", response);
+            //eprintln!("Got response:\n{}", response);
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
                 .unwrap()
