@@ -1,6 +1,6 @@
 #![deny(warnings)]
 use failure::bail;
-use rememberthemilk::API;
+use rememberthemilk::{API,Perms};
 use std::collections::HashMap;
 use structopt::StructOpt;
 
@@ -22,7 +22,12 @@ enum Command {
     /// Add a new task
     AddTask { name: String },
     /// Authorise the app
-    AuthApp { key: String, secret: String },
+    AuthApp {
+        key: String,
+        secret: String,
+        #[structopt(default_value="read", long)]
+        perm: Perms,
+    },
     /// Remove the saved user token
     Logout,
 }
@@ -33,7 +38,7 @@ struct Opt {
     cmd: Command,
 }
 
-async fn get_rtm_api() -> Result<API, failure::Error> {
+async fn get_rtm_api(perm: Perms) -> Result<API, failure::Error> {
     let config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
         API::from_config(config)
@@ -42,14 +47,15 @@ async fn get_rtm_api() -> Result<API, failure::Error> {
         bail!("No auth key");
     };
 
-    if !api.has_token().await.unwrap() {
-        auth_user(&mut api).await?;
+    if !api.has_token(perm).await.unwrap() {
+        eprintln!("Don't have token - need to fix");
+        auth_user(&mut api, perm).await?;
     };
     Ok(api)
 }
 
-async fn auth_user(api: &mut API) -> Result<(), failure::Error> {
-    let auth = api.start_auth().await?;
+async fn auth_user(api: &mut API, perm: Perms) -> Result<(), failure::Error> {
+    let auth = api.start_auth(perm).await?;
     println!("auth_url: {}", auth.url);
     println!("Press enter when authorised...");
     {
@@ -66,10 +72,10 @@ async fn auth_user(api: &mut API) -> Result<(), failure::Error> {
     Ok(())
 }
 
-async fn auth_app(key: String, secret: String) -> Result<(), failure::Error> {
+async fn auth_app(key: String, secret: String, perm: Perms) -> Result<(), failure::Error> {
     let mut api = API::new(key, secret);
 
-    auth_user(&mut api).await?;
+    auth_user(&mut api, perm).await?;
     println!("Successfully authenticated.");
     Ok(())
 }
@@ -82,7 +88,7 @@ async fn logout() -> Result<(), failure::Error> {
 }
 
 async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error> {
-    let api = get_rtm_api().await?;
+    let api = get_rtm_api(Perms::Read).await?;
     let filter = match filter {
         Some(ref s) => &s[..],
         None => "status:incomplete AND (dueBefore:today OR due:today)",
@@ -110,7 +116,7 @@ async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error> {
 }
 
 async fn list_lists() -> Result<(), failure::Error> {
-    let api = get_rtm_api().await?;
+    let api = get_rtm_api(Perms::Read).await?;
     let all_lists = api.get_lists().await?;
     for list in all_lists {
         println!("{}", list.name);
@@ -119,7 +125,7 @@ async fn list_lists() -> Result<(), failure::Error> {
 }
 
 async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error> {
-    let api = get_rtm_api().await?;
+    let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
     let tasks = api.get_tasks_filtered(&filter).await?;
 
@@ -139,7 +145,7 @@ async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error> {
 }
 
 async fn add_task(name: String) -> Result<(), failure::Error> {
-    let api = get_rtm_api().await?;
+    let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
 
     api.add_task(&timeline, &name, None, None, None).await?;
@@ -154,7 +160,7 @@ async fn main() -> Result<(), failure::Error> {
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
         Command::AddTask { name } => add_task(name).await?,
-        Command::AuthApp { key, secret } => auth_app(key, secret).await?,
+        Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
         Command::Logout => logout().await?,
     }
 
