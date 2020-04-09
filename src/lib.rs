@@ -87,6 +87,14 @@ pub struct RTMConfig {
     pub user: Option<User>,
 }
 
+impl RTMConfig {
+    /// Clear any user-specific data (auth tokens, user info, etc.)
+    pub fn clear_user_data(&mut self) {
+        self.token = None;
+        self.user = None;
+    }
+}
+
 /// The rememberthemilk API object.  All rememberthemilk operations are done using methods on here.
 pub struct API {
     api_key: String,

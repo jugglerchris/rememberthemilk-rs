@@ -23,6 +23,8 @@ enum Command {
     AddTask { name: String },
     /// Authorise the app
     AuthApp { key: String, secret: String },
+    /// Remove the saved user token
+    Logout,
 }
 
 #[derive(StructOpt, Debug)]
@@ -69,6 +71,13 @@ async fn auth_app(key: String, secret: String) -> Result<(), failure::Error> {
 
     auth_user(&mut api).await?;
     println!("Successfully authenticated.");
+    Ok(())
+}
+
+async fn logout() -> Result<(), failure::Error> {
+    let mut config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
+    config.clear_user_data();
+    confy::store("rtm_auth_example", config)?;
     Ok(())
 }
 
@@ -146,6 +155,7 @@ async fn main() -> Result<(), failure::Error> {
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
         Command::AddTask { name } => add_task(name).await?,
         Command::AuthApp { key, secret } => auth_app(key, secret).await?,
+        Command::Logout => logout().await?,
     }
 
     Ok(())
