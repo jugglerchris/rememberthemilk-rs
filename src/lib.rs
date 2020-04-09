@@ -125,7 +125,7 @@ pub enum Perms {
 
 impl Perms {
     /// Return true if this permission includes the rights to do `other`.
-    fn includes(&self, other: Perms) -> bool {
+    fn includes(self, other: Perms) -> bool {
         match (self, other) {
             (Self::Delete, _)
             | (Self::Write, Self::Read)
