@@ -1,7 +1,7 @@
 #![deny(warnings)]
 use failure::bail;
 use rememberthemilk::API;
-use std::{collections::HashMap};
+use std::collections::HashMap;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -20,14 +20,9 @@ enum Command {
         filter: String,
     },
     /// Add a new task
-    AddTask {
-        name: String,
-    },
+    AddTask { name: String },
     /// Authorise the app
-    AuthApp {
-        key: String,
-        secret: String,
-    },
+    AuthApp { key: String, secret: String },
 }
 
 #[derive(StructOpt, Debug)]
