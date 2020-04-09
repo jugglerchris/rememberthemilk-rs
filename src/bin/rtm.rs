@@ -19,6 +19,10 @@ enum Command {
         #[structopt(long)]
         filter: String,
     },
+    /// Add a new task
+    AddTask {
+        name: String,
+    },
 }
 
 #[derive(StructOpt, Debug)]
@@ -115,6 +119,14 @@ async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error> {
     Ok(())
 }
 
+async fn add_task(name: String) -> Result<(), failure::Error> {
+    let api = get_rtm_api().await?;
+    let timeline = api.get_timeline().await?;
+
+    api.add_task(&timeline, &name, None, None, None).await?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), failure::Error> {
     let opt = Opt::from_args();
@@ -122,6 +134,7 @@ async fn main() -> Result<(), failure::Error> {
         Command::Tasks { filter } => list_tasks(filter).await?,
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
+        Command::AddTask { name } => add_task(name).await?,
     }
 
     Ok(())
