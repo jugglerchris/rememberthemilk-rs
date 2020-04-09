@@ -1,6 +1,6 @@
 #![deny(warnings)]
 use failure::bail;
-use rememberthemilk::{API,Perms};
+use rememberthemilk::{Perms, API};
 use std::collections::HashMap;
 use structopt::StructOpt;
 
@@ -25,7 +25,7 @@ enum Command {
     AuthApp {
         key: String,
         secret: String,
-        #[structopt(default_value="read", long)]
+        #[structopt(default_value = "read", long)]
         perm: Perms,
     },
     /// Remove the saved user token

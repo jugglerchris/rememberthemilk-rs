@@ -1,6 +1,6 @@
 use confy;
 use failure::bail;
-use rememberthemilk::{API, Perms};
+use rememberthemilk::{Perms, API};
 use std::env;
 
 #[tokio::main]

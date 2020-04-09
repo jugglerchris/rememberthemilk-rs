@@ -127,10 +127,10 @@ impl Perms {
     /// Return true if this permission includes the rights to do `other`.
     fn includes(&self, other: Perms) -> bool {
         match (self, other) {
-            (Self::Delete, _) |
-            (Self::Write, Self::Read) |
-            (Self::Write, Self::Write) |
-            (Self::Read, Self::Read) => true,
+            (Self::Delete, _)
+            | (Self::Write, Self::Read)
+            | (Self::Write, Self::Write)
+            | (Self::Read, Self::Read) => true,
             _ => false,
         }
     }
@@ -142,7 +142,8 @@ impl ToString for Perms {
             Self::Read => "read",
             Self::Write => "write",
             Self::Delete => "delete",
-        }).to_string()
+        })
+        .to_string()
     }
 }
 
