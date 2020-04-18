@@ -134,16 +134,20 @@ impl Perms {
             _ => false,
         }
     }
+
+    /// Return a string representation suitable for the RTM API
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::Delete => "delete",
+        }
+    }
 }
 
 impl ToString for Perms {
     fn to_string(&self) -> String {
-        (match self {
-            Self::Read => "read",
-            Self::Write => "write",
-            Self::Delete => "delete",
-        })
-        .to_string()
+        self.as_str().to_string()
     }
 }
 
@@ -413,8 +417,8 @@ impl API {
         }
     }
 
-    fn sign_keys(&self, keys: &[(String, String)]) -> String {
-        let mut my_keys = keys.iter().collect::<Vec<&(String, String)>>();
+    fn sign_keys(&self, keys: &[(&str, &str)]) -> String {
+        let mut my_keys = keys.iter().collect::<Vec<&(&str, &str)>>();
         my_keys.sort();
         let mut to_sign = self.api_secret.clone();
         for &(ref k, ref v) in my_keys {
@@ -425,7 +429,7 @@ impl API {
         format!("{:x}", digest)
     }
 
-    fn make_authenticated_url(&self, url: &'static str, keys: Vec<(String, String)>) -> String {
+    fn make_authenticated_url(&self, url: &'static str, keys: &[(&str, &str)]) -> String {
         let mut url = url.to_string();
         let auth_string = self.sign_keys(&keys);
         url.push('?');
@@ -441,25 +445,31 @@ impl API {
         url
     }
 
-    async fn make_authenticated_request(
-        &self,
+    fn make_authenticated_request<'a>(
+        &'a self,
         url: &'static str,
-        keys: Vec<(String, String)>,
-    ) -> Result<String, failure::Error> {
+        keys: &'a [(&'a str, &'a str)],
+    ) -> impl std::future::Future<Output=Result<String, failure::Error>>+'a {
+        // As an async fn, this doesn't compile due to (I think):
+        // https://github.com/rust-lang/rust/issues/63033
+        // One of the comments points to an explicit async block instead of using
+        // an async function as a workaround.
         let url = self.make_authenticated_url(url, keys);
-        let body = reqwest::get(&url).await?.text().await?;
-        //println!("Body={}", body);
-        Ok(body)
+        async move {
+            let body = reqwest::get(&url).await?.text().await?;
+            //println!("Body={}", body);
+            Ok(body)
+        }
     }
 
     async fn get_frob(&self) -> Result<String, Error> {
         let response = self
             .make_authenticated_request(
                 MILK_REST_URL,
-                vec![
-                    ("method".into(), "rtm.auth.getFrob".into()),
-                    ("format".into(), "json".into()),
-                    ("api_key".into(), self.api_key.clone()),
+                &[
+                    ("method", "rtm.auth.getFrob"),
+                    ("format", "json"),
+                    ("api_key", &self.api_key),
                 ],
             )
             .await?;
@@ -483,11 +493,11 @@ impl API {
         let frob = self.get_frob().await?;
         let url = self.make_authenticated_url(
             MILK_AUTH_URL,
-            vec![
-                ("api_key".into(), self.api_key.clone()),
-                ("format".into(), "json".into()),
-                ("perms".into(), perm.to_string()),
-                ("frob".into(), frob.clone()),
+            &[
+                ("api_key", &self.api_key),
+                ("format", "json"),
+                ("perms", perm.as_str()),
+                ("frob", &frob),
             ],
         );
         Ok(AuthState { frob, url })
@@ -505,11 +515,11 @@ impl API {
         let response = self
             .make_authenticated_request(
                 MILK_REST_URL,
-                vec![
-                    ("method".into(), "rtm.auth.getToken".into()),
-                    ("format".into(), "json".into()),
-                    ("api_key".into(), self.api_key.clone()),
-                    ("frob".into(), auth.frob.clone()),
+                &[
+                    ("method", "rtm.auth.getToken"),
+                    ("format", "json"),
+                    ("api_key", &self.api_key),
+                    ("frob", &auth.frob),
                 ],
             )
             .await?;
@@ -534,11 +544,11 @@ impl API {
             let response = self
                 .make_authenticated_request(
                     MILK_REST_URL,
-                    vec![
-                        ("method".into(), "rtm.auth.checkToken".into()),
-                        ("format".into(), "json".into()),
-                        ("api_key".into(), self.api_key.clone()),
-                        ("auth_token".into(), tok.clone()),
+                    &[
+                        ("method", "rtm.auth.checkToken"),
+                        ("format", "json"),
+                        ("api_key", &self.api_key),
+                        ("auth_token", &tok),
                     ],
                 )
                 .await?;
@@ -573,16 +583,16 @@ impl API {
     pub async fn get_tasks_filtered(&self, filter: &str) -> Result<RTMTasks, Error> {
         if let Some(ref tok) = self.token {
             let mut params = vec![
-                ("method".into(), "rtm.tasks.getList".into()),
-                ("format".into(), "json".into()),
-                ("api_key".into(), self.api_key.clone()),
-                ("auth_token".into(), tok.clone()),
+                ("method", "rtm.tasks.getList"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
             ];
             if filter != "" {
-                params.push(("filter".into(), filter.into()));
+                params.push(("filter", filter));
             }
             let response = self
-                .make_authenticated_request(MILK_REST_URL, params)
+                .make_authenticated_request(MILK_REST_URL, &params)
                 .await?;
             //eprintln!("Got response:\n{}", response);
             // TODO: handle failure
@@ -600,11 +610,11 @@ impl API {
     /// Requires a valid user authentication token.
     pub async fn get_lists(&self) -> Result<Vec<RTMList>, Error> {
         if let Some(ref tok) = self.token {
-            let params = vec![
-                ("method".into(), "rtm.lists.getList".into()),
-                ("format".into(), "json".into()),
-                ("api_key".into(), self.api_key.clone()),
-                ("auth_token".into(), tok.clone()),
+            let params = &[
+                ("method", "rtm.lists.getList"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
             ];
             let response = self
                 .make_authenticated_request(MILK_REST_URL, params)
@@ -628,11 +638,11 @@ impl API {
     /// Requires a valid user authentication token.
     pub async fn get_timeline(&self) -> Result<RTMTimeline, Error> {
         if let Some(ref tok) = self.token {
-            let params = vec![
-                ("method".into(), "rtm.timelines.create".into()),
-                ("format".into(), "json".into()),
-                ("api_key".into(), self.api_key.clone()),
-                ("auth_token".into(), tok.clone()),
+            let params = &[
+                ("method", "rtm.timelines.create"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
             ];
             let response = self
                 .make_authenticated_request(MILK_REST_URL, params)
@@ -665,16 +675,17 @@ impl API {
         tags: &[&str],
     ) -> Result<(), Error> {
         if let Some(ref tok) = self.token {
-            let params = vec![
-                ("method".into(), "rtm.tasks.addTags".into()),
-                ("format".into(), "json".into()),
-                ("api_key".into(), self.api_key.clone()),
-                ("auth_token".into(), tok.clone()),
-                ("timeline".into(), timeline.0.clone()),
-                ("list_id".into(), list.id.clone()),
-                ("taskseries_id".into(), taskseries.id.clone()),
-                ("task_id".into(), task.id.clone()),
-                ("tags".into(), tags.join(",")),
+            let tags = tags.join(",");
+            let params = &[
+                ("method", "rtm.tasks.addTags"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("timeline", &timeline.0),
+                ("list_id", &list.id),
+                ("taskseries_id", &taskseries.id),
+                ("task_id", &task.id),
+                ("tags", &tags),
             ];
             let response = self
                 .make_authenticated_request(MILK_REST_URL, params)
@@ -709,24 +720,24 @@ impl API {
     ) -> Result<(), Error> {
         if let Some(ref tok) = self.token {
             let mut params = vec![
-                ("method".into(), "rtm.tasks.add".into()),
-                ("format".into(), "json".into()),
-                ("api_key".into(), self.api_key.clone()),
-                ("auth_token".into(), tok.clone()),
-                ("timeline".into(), timeline.0.clone()),
-                ("name".into(), name.into()),
+                ("method", "rtm.tasks.add"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("timeline", &timeline.0),
+                ("name", name),
             ];
             if let Some(list) = list {
-                params.push(("list_id".into(), list.id.clone()));
+                params.push(("list_id", &list.id));
             }
             if let Some(parent) = parent {
-                params.push(("task_id".into(), parent.id.clone()));
+                params.push(("task_id", &parent.id));
             }
             if let Some(external_id) = external_id {
-                params.push(("external_id".into(), external_id.into()));
+                params.push(("external_id", &external_id));
             }
             let response = self
-                .make_authenticated_request(MILK_REST_URL, params)
+                .make_authenticated_request(MILK_REST_URL, &params)
                 .await?;
             eprintln!("Add task response: {}", response);
             let rsp = from_str::<RTMResponse<AddTaskResponse>>(&response)?.rsp;
