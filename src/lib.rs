@@ -449,7 +449,7 @@ impl API {
         &'a self,
         url: &'static str,
         keys: &'a [(&'a str, &'a str)],
-    ) -> impl std::future::Future<Output=Result<String, failure::Error>>+'a {
+    ) -> impl std::future::Future<Output = Result<String, failure::Error>> + 'a {
         // As an async fn, this doesn't compile due to (I think):
         // https://github.com/rust-lang/rust/issues/63033
         // One of the comments points to an explicit async block instead of using
