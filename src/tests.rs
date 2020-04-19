@@ -50,6 +50,10 @@ fn test_deser_taskseries() {
         task: vec![Task {
             id: "my_task_id".into(),
             due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
+            added: Some(chrono::Utc.ymd(2020, 1, 10).and_hms(16, 0, 56)),
+            completed: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(13, 12, 11)),
+            deleted: None,
+            has_due_time: false,
         }],
         tags: vec!["computer".into()],
     };
@@ -67,6 +71,10 @@ fn test_deser_task() {
     let expected = Task {
         id: "my_task_id".into(),
         due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
+        added: Some(chrono::Utc.ymd(2020, 1, 10).and_hms(16, 0, 56)),
+        completed: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(13, 12, 11)),
+        deleted: None,
+        has_due_time: false,
     };
     println!("{}", to_string(&expected).unwrap());
     let task = from_str::<Task>(json).unwrap();
@@ -82,6 +90,10 @@ fn test_deser_task_nodue() {
     let expected = Task {
         id: "my_task_id".into(),
         due: None,
+        added: Some(chrono::Utc.ymd(2020, 1, 10).and_hms(16, 0, 56)),
+        completed: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(13, 12, 11)),
+        deleted: None,
+        has_due_time: false,
     };
     println!("{}", to_string(&expected).unwrap());
     let task = from_str::<Task>(json).unwrap();
@@ -148,6 +160,10 @@ fn test_deser_tasklist_response() {
                     task: vec![Task {
                         id: "my_task_id".into(),
                         due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
+                        added: Some(chrono::Utc.ymd(2020, 1, 10).and_hms(16, 0, 56)),
+                        completed: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(13, 12, 11)),
+                        deleted: None,
+                        has_due_time: false,
                     }],
                     tags: vec!["computer".into()],
                 }]),

@@ -53,9 +53,9 @@
 //! # Ok(())
 //! # }
 //! ```
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use failure::{bail, Error};
-use serde::{Deserialize, Serialize};
+use serde::{de::Unexpected, Deserialize, Serialize};
 use serde_json::from_str;
 
 static MILK_REST_URL: &str = "https://api.rememberthemilk.com/services/rest/";
@@ -223,6 +223,20 @@ where
     }
 }
 
+fn bool_from_string<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match String::deserialize(deserializer)?.as_ref() {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        other => Err(serde::de::Error::invalid_value(
+            Unexpected::Str(other),
+            &"0 or 1",
+        )),
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(untagged)]
 enum TagSer {
@@ -276,6 +290,66 @@ pub struct Task {
     #[serde(deserialize_with = "empty_string_as_none")]
     /// The task's due date, if any.
     pub due: Option<DateTime<Utc>>,
+    /// If true then there is a due date and time, not just date.
+    #[serde(deserialize_with = "bool_from_string")]
+    pub has_due_time: bool,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    /// The task's deleted date, if any.
+    pub deleted: Option<DateTime<Utc>>,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    /// The date/time when this task was added
+    pub added: Option<DateTime<Utc>>,
+    #[serde(deserialize_with = "empty_string_as_none")]
+    /// The date/time when this task was completed
+    pub completed: Option<DateTime<Utc>>,
+}
+
+/// Describes how much time is left to complete this task, or perhaps
+/// that it is overdue or has been deleted.
+#[derive(Debug, Copy, Clone)]
+pub enum TimeLeft {
+    /// The length of time in seconds until this item is due (in the future)
+    Remaining(u64),
+    /// The task is overdue by this count of seconds
+    Overdue(u64),
+    /// Already completed
+    Completed,
+    /// No due date
+    NoDue,
+}
+
+impl Task {
+    /// Return the time left (or time since it was due) of a task.
+    /// For tasks with no due date, or which are already completed,
+    /// returns Completed.
+    pub fn get_time_left(&self) -> TimeLeft {
+        if self.completed.is_some() {
+            return TimeLeft::Completed;
+        }
+        if self.deleted.is_some() {
+            return TimeLeft::NoDue;
+        }
+        if self.due.is_none() || self.deleted.is_some() {
+            return TimeLeft::NoDue;
+        }
+        if let Some(mut due) = self.due {
+            if !self.has_due_time {
+                // If no due time, assume it's due at the end of the day,
+                // or the start of the next day.
+                due = due + Duration::days(1);
+            }
+            let time_left = due.signed_duration_since(chrono::Utc::now());
+            let seconds = time_left.num_seconds();
+            if seconds < 0 {
+                TimeLeft::Overdue((-seconds) as u64)
+            } else {
+                TimeLeft::Remaining(seconds as u64)
+            }
+        } else {
+            // We would have found it in the previous test
+            unreachable!()
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
@@ -587,6 +661,7 @@ impl API {
                 ("format", "json"),
                 ("api_key", &self.api_key),
                 ("auth_token", &tok),
+                ("v", "2"),
             ];
             if filter != "" {
                 params.push(("filter", filter));

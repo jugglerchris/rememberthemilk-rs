@@ -2,6 +2,7 @@
 use failure::bail;
 use rememberthemilk::{Perms, API};
 use std::collections::HashMap;
+use std::io::Write;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -32,10 +33,48 @@ enum Command {
     Logout,
 }
 
+#[derive(Copy, Clone, Debug)]
+enum ColourOption {
+    Auto,
+    Always,
+    Never,
+}
+
+impl std::str::FromStr for ColourOption {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<ColourOption, &'static str> {
+        match s {
+            "auto" => Ok(ColourOption::Auto),
+            "always" => Ok(ColourOption::Always),
+            "never" => Ok(ColourOption::Never),
+            _ => Err("Invalid option for --colour"),
+        }
+    }
+}
+
 #[derive(StructOpt, Debug)]
 struct Opt {
+    #[structopt(short, long)]
+    verbose: bool,
+
+    #[structopt(default_value = "auto", long)]
+    colour: ColourOption,
+
     #[structopt(subcommand)]
     cmd: Command,
+}
+
+impl Opt {
+    fn get_stdout(&self) -> termcolor::StandardStream {
+        use termcolor::ColorChoice;
+        let choice = match self.colour {
+            ColourOption::Auto => ColorChoice::Auto,
+            ColourOption::Always => ColorChoice::Always,
+            ColourOption::Never => ColorChoice::Never,
+        };
+        termcolor::StandardStream::stdout(choice)
+    }
 }
 
 async fn get_rtm_api(perm: Perms) -> Result<API, failure::Error> {
@@ -87,7 +126,22 @@ async fn logout() -> Result<(), failure::Error> {
     Ok(())
 }
 
-async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error> {
+fn format_human_time(secs: u64) -> String {
+    if secs > 24 * 60 * 60 {
+        let days = secs / (24 * 60 * 60);
+        format!("{} day{}", days, if days > 1 { "s" } else { "" })
+    } else if secs > 60 * 60 {
+        let hours = secs / (60 * 60);
+        format!("{} hour{}", hours, if hours > 1 { "s" } else { "" })
+    } else if secs > 60 {
+        let minutes = secs / 60;
+        format!("{} minute{}", minutes, if minutes > 1 { "s" } else { "" })
+    } else {
+        format!("{} sec{}", secs, if secs > 1 { "s" } else { "" })
+    }
+}
+
+async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::Error> {
     let api = get_rtm_api(Perms::Read).await?;
     let filter = match filter {
         Some(ref s) => &s[..],
@@ -101,17 +155,64 @@ async fn list_tasks(filter: Option<String>) -> Result<(), failure::Error> {
             lists.insert(list.id.clone(), list);
         }
     }
+    use termcolor::{Color, ColorSpec, WriteColor};
+    let mut stdout = opts.get_stdout();
     for list in all_tasks.list {
-        println!("#{}", lists[&list.id].name);
+        stdout.set_color(ColorSpec::new().set_fg(Some(Color::Magenta)))?;
+        writeln!(stdout, "#{}", lists[&list.id].name)?;
         if let Some(v) = list.taskseries {
+            stdout.reset()?;
             for ts in v {
-                println!("  {}", ts.name);
-                for task in ts.task {
-                    println!("    Due {:?}", task.due);
+                //eprintln!("{:?}", ts.task);
+                for task in &ts.task {
+                    let time_left = task.get_time_left();
+                    use rememberthemilk::TimeLeft::*;
+                    match time_left {
+                        Remaining(secs) => {
+                            let colour = if secs < 60 * 60 {
+                                ColorSpec::new().set_fg(Some(Color::Red)).clone()
+                            } else {
+                                ColorSpec::new().set_fg(Some(Color::Yellow)).clone()
+                            };
+                            stdout.set_color(&colour)?;
+                            write!(stdout, "{}", format_human_time(secs))?;
+                        }
+                        Overdue(secs) => {
+                            stdout.set_color(ColorSpec::new().set_bg(Some(Color::Red)))?;
+                            write!(stdout, "{} ago", format_human_time(secs))?;
+                        }
+                        Completed | NoDue => {
+                            ColorSpec::new().set_fg(Some(Color::Green));
+                        }
+                    };
+                }
+                writeln!(stdout, "  {}", ts.name)?;
+
+                if opts.verbose && !ts.task.is_empty() {
+                    let task = &ts.task[0];
+                    writeln!(stdout, "    id: {}", task.id)?;
+                    if let Some(due) = task.due {
+                        if task.has_due_time {
+                            writeln!(stdout, "    due: {}", due)?;
+                        } else {
+                            // Remove the time parts, which aren't used.
+                            writeln!(stdout, "    due: {}", due.date())?;
+                        }
+                    }
+                    if let Some(added) = task.added {
+                        writeln!(stdout, "    added: {}", added)?;
+                    }
+                    if let Some(completed) = task.completed {
+                        writeln!(stdout, "    completed: {}", completed)?;
+                    }
+                    if let Some(deleted) = task.deleted {
+                        writeln!(stdout, "    deleted: {}", deleted)?;
+                    }
                 }
             }
         }
     }
+    stdout.reset()?;
     Ok(())
 }
 
@@ -156,7 +257,7 @@ async fn add_task(name: String) -> Result<(), failure::Error> {
 async fn main() -> Result<(), failure::Error> {
     let opt = Opt::from_args();
     match opt.cmd {
-        Command::Tasks { filter } => list_tasks(filter).await?,
+        Command::Tasks { ref filter } => list_tasks(&opt, filter).await?,
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
         Command::AddTask { name } => add_task(name).await?,
