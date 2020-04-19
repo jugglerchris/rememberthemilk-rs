@@ -188,7 +188,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
                 }
                 writeln!(stdout, "  {}", ts.name)?;
 
-                if opts.verbose && ts.task.len() > 0 {
+                if opts.verbose && !ts.task.is_empty() {
                     let task = &ts.task[0];
                     writeln!(stdout, "    id: {}", task.id)?;
                     if let Some(due) = task.due {
