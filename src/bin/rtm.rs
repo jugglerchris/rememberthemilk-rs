@@ -33,7 +33,7 @@ enum Command {
     Logout,
 }
 
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy, Clone, Debug)]
 enum ColourOption {
     Auto,
     Always,
@@ -58,7 +58,7 @@ struct Opt {
     #[structopt(short, long)]
     verbose: bool,
 
-    #[structopt(default_value="auto", long)]
+    #[structopt(default_value = "auto", long)]
     colour: ColourOption,
 
     #[structopt(subcommand)]
@@ -127,14 +127,14 @@ async fn logout() -> Result<(), failure::Error> {
 }
 
 fn format_human_time(secs: u64) -> String {
-    if secs > 24*60*60 {
-        let days = secs/(24*60*60);
+    if secs > 24 * 60 * 60 {
+        let days = secs / (24 * 60 * 60);
         format!("{} day{}", days, if days > 1 { "s" } else { "" })
-    } else if secs > 60*60 {
-        let hours = secs/(60*60);
+    } else if secs > 60 * 60 {
+        let hours = secs / (60 * 60);
         format!("{} hour{}", hours, if hours > 1 { "s" } else { "" })
     } else if secs > 60 {
-        let minutes = secs/60;
+        let minutes = secs / 60;
         format!("{} minute{}", minutes, if minutes > 1 { "s" } else { "" })
     } else {
         format!("{} sec{}", secs, if secs > 1 { "s" } else { "" })
@@ -155,7 +155,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
             lists.insert(list.id.clone(), list);
         }
     }
-    use termcolor::{WriteColor, Color, ColorSpec};
+    use termcolor::{Color, ColorSpec, WriteColor};
     let mut stdout = opts.get_stdout();
     for list in all_tasks.list {
         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Magenta)))?;
@@ -169,7 +169,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
                     use rememberthemilk::TimeLeft::*;
                     match time_left {
                         Remaining(secs) => {
-                            let colour = if secs < 60*60 {
+                            let colour = if secs < 60 * 60 {
                                 ColorSpec::new().set_fg(Some(Color::Red)).clone()
                             } else {
                                 ColorSpec::new().set_fg(Some(Color::Yellow)).clone()

@@ -55,7 +55,7 @@
 //! ```
 use chrono::{DateTime, Duration, Utc};
 use failure::{bail, Error};
-use serde::{Deserialize, Serialize, de::Unexpected};
+use serde::{de::Unexpected, Deserialize, Serialize};
 use serde_json::from_str;
 
 static MILK_REST_URL: &str = "https://api.rememberthemilk.com/services/rest/";
