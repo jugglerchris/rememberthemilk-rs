@@ -174,3 +174,15 @@ fn test_deser_tasklist_response() {
     let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
     assert_eq!(lists, expected);
 }
+
+#[tokio::test]
+async fn test_no_token()
+{
+    use ::mockito::mock;
+
+    let _m = mock("GET", "/");
+
+    let api = API::new("key".into(), "secret".into());
+
+    assert!(!api.has_token(Perms::Read).await.unwrap());
+}
