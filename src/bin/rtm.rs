@@ -164,7 +164,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
             stdout.reset()?;
             for ts in v {
                 //eprintln!("{:?}", ts.task);
-                for task in ts.task {
+                for task in &ts.task {
                     let time_left = task.get_time_left();
                     use rememberthemilk::TimeLeft::*;
                     match time_left {
@@ -187,6 +187,28 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
                     };
                 }
                 writeln!(stdout, "  {}", ts.name)?;
+
+                if opts.verbose && ts.task.len() > 0 {
+                    let task = &ts.task[0];
+                    writeln!(stdout, "    id: {}", task.id)?;
+                    if let Some(due) = task.due {
+                        if task.has_due_time {
+                            writeln!(stdout, "    due: {}", due)?;
+                        } else {
+                            // Remove the time parts, which aren't used.
+                            writeln!(stdout, "    due: {}", due.date())?;
+                        }
+                    }
+                    if let Some(added) = task.added {
+                        writeln!(stdout, "    added: {}", added)?;
+                    }
+                    if let Some(completed) = task.completed {
+                        writeln!(stdout, "    completed: {}", completed)?;
+                    }
+                    if let Some(deleted) = task.deleted {
+                        writeln!(stdout, "    deleted: {}", deleted)?;
+                    }
+                }
             }
         }
     }
