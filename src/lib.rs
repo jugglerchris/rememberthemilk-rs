@@ -257,6 +257,20 @@ where
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+/// A recurrence rule for a repeating task.
+pub struct RRule {
+    /// If true, the recurrence rule is an "every" rule, which means it
+    /// continues repeating even if the task isn't completed.  Otherwise,
+    /// it is an "after" task.
+    #[serde(deserialize_with = "bool_from_string")]
+    pub every: bool,
+
+    /// The recurrence rule; see RFC 2445 for the meaning.
+    #[serde(rename = "$t")]
+    pub rule: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 /// A rememberthemilk Task Series.  This corresponds to a single to-do item,
 /// and has the fields such as name and tags.  It also may contain some
 /// [Task]s, each of which is an instance of a possibly recurring or
@@ -275,6 +289,9 @@ pub struct TaskSeries {
     #[serde(deserialize_with = "deser_tags")]
     /// A list of the tags attached to this task series.
     pub tags: Vec<String>,
+    /// Repetition information
+    #[serde(rename = "rrule")]
+    pub repeat: Option<RRule>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
@@ -669,7 +686,7 @@ impl API {
             let response = self
                 .make_authenticated_request(MILK_REST_URL, &params)
                 .await?;
-            //eprintln!("Got response:\n{}", response);
+            eprintln!("Got response:\n{}", response);
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
                 .unwrap()

@@ -187,6 +187,19 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
                     };
                 }
                 writeln!(stdout, "  {}", ts.name)?;
+                if opts.verbose {
+                    writeln!(stdout, "   id: {}", ts.id)?;
+                    writeln!(stdout, "   created: {}", ts.created)?;
+                    writeln!(stdout, "   modified: {}", ts.modified)?;
+                    writeln!(stdout, "   tags: {:?}", &ts.tags[..])?;
+                    if let Some(repeat) = ts.repeat {
+                        if repeat.every {
+                            writeln!(stdout, "   repeat: every {}", repeat.rule)?;
+                        } else {
+                            writeln!(stdout, "   repeat: after {}", repeat.rule)?;
+                        }
+                    }
+                }
 
                 if opts.verbose && !ts.task.is_empty() {
                     let task = &ts.task[0];
