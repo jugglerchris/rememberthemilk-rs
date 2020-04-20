@@ -37,6 +37,7 @@ fn test_deser_taskseries() {
             "tags":{"tag":["computer"]},
             "participants":[],
             "notes":[],
+            "rrule":{"every":"1","$t":"FREQ=WEEKLY;INTERVAL=1;WKST=MO"},
             "task":[
               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
             ]
@@ -47,6 +48,10 @@ fn test_deser_taskseries() {
         name: "Do the thing".into(),
         created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
         modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
+        repeat: Some(RRule {
+            every: true,
+            rule: "FREQ=WEEKLY;INTERVAL=1;WKST=MO".into(),
+        }),
         task: vec![Task {
             id: "my_task_id".into(),
             due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
@@ -63,22 +68,15 @@ fn test_deser_taskseries() {
 }
 
 #[test]
-fn test_deser_task() {
-    let json = r#"
-              {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
-"#;
-    //        println!("{}", json);
-    let expected = Task {
-        id: "my_task_id".into(),
-        due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
-        added: Some(chrono::Utc.ymd(2020, 1, 10).and_hms(16, 0, 56)),
-        completed: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(13, 12, 11)),
-        deleted: None,
-        has_due_time: false,
+fn test_deser_rrule() {
+    let json = r#"{"every":"1","$t":"FREQ=WEEKLY;INTERVAL=1;WKST=MO"}"#;
+    let expected = RRule {
+        every: true,
+        rule: "FREQ=WEEKLY;INTERVAL=1;WKST=MO".into(),
     };
     println!("{}", to_string(&expected).unwrap());
-    let task = from_str::<Task>(json).unwrap();
-    assert_eq!(task, expected);
+    let rule = from_str::<RRule>(json).unwrap();
+    assert_eq!(rule, expected);
 }
 
 #[test]
@@ -166,6 +164,7 @@ fn test_deser_tasklist_response() {
                         has_due_time: false,
                     }],
                     tags: vec!["computer".into()],
+                    repeat: None,
                 }]),
             }],
         },
