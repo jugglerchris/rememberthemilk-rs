@@ -175,8 +175,7 @@ fn test_deser_tasklist_response() {
 }
 
 #[tokio::test]
-async fn test_no_token()
-{
+async fn test_no_token() {
     use ::mockito::mock;
 
     let _m = mock("GET", "/");
