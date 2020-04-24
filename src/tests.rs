@@ -173,3 +173,41 @@ fn test_deser_tasklist_response() {
     let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
     assert_eq!(lists, expected);
 }
+
+#[tokio::test]
+async fn test_no_token() {
+    use ::mockito::mock;
+
+    let _m = mock("GET", "/");
+
+    let api = API::new("key".into(), "secret".into());
+
+    assert!(!api.has_token(Perms::Read).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_have_token() {
+    use ::mockito::{mock, Matcher};
+
+    let config = RTMConfig {
+        api_key: Some("key".into()),
+        api_secret: Some("secret".into()),
+        token: Some("token".into()),
+        user: None,
+    };
+    let m = mock("GET", "/")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("method".into(), "rtm.auth.checkToken".into()),
+            Matcher::UrlEncoded("format".into(), "json".into()),
+            Matcher::UrlEncoded("api_key".into(), "key".into()),
+            Matcher::UrlEncoded("auth_token".into(), "token".into()),
+            Matcher::Regex("api_sig=.*".into()),
+        ]))
+        .with_body(r#"{"rsp":{"stat":"ok","auth":{"token":"token","perms":"read","user":{"id":"1","username":"bob","fullname":"Bob T. Monkey"}}}}"#)
+        .create();
+
+    let api = API::from_config(config);
+
+    assert!(api.has_token(Perms::Read).await.unwrap());
+    m.assert();
+}
