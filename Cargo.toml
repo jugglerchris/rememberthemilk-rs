@@ -3,8 +3,13 @@ name = "rememberthemilk"
 version = "0.1.0"
 authors = ["Chris Emerson <github@mail.nosreme.org>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT"
+description = "Client library for the Remember The Milk todo list service."
+homepage = "https://github.com/jugglerchris/rememberthemilk-rs"
+repository = "https://github.com/jugglerchris/rememberthemilk-rs"
+readme = "README.md"
+keywords = ["todo", "rememberthemilk"]
+categories = ["api-bindings", "command-line-utilities"]
 
 [dependencies]
 tokio = { version = "0.2", features = ["full"] }
