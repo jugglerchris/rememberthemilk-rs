@@ -12,6 +12,9 @@ my priorities are influenced by polite feature or pull requests.
 # Contributing
 
 Bug reports, feature requests, general queries, and pull requests welcome.  The
-CI runs cargo test, cargo fmt and cargo clippy, but these are not a prerequisite
-for me accepting a PR - in general if the PR is otherwise good I'm happy to just
-fix those up myself before merging.
+CI runs cargo test, cargo fmt and cargo clippy, but these are not a
+prerequisite for me accepting a PR - in general if the PR is otherwise good I'm
+happy to just fix those up myself before merging.
+
+For any larger changes, I suggest discussing in an issue first to check it's in
+the right direction before wasting time.
