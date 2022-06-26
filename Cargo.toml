@@ -12,8 +12,8 @@ keywords = ["todo", "rememberthemilk"]
 categories = ["api-bindings", "command-line-utilities"]
 
 [dependencies]
-tokio = { version = "0.2", features = ["full"] }
-reqwest = "0.10"
+tokio = { version = "1.0", features = ["full"] }
+reqwest = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 failure = "0.1"
