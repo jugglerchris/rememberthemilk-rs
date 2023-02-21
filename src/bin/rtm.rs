@@ -209,7 +209,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
                             writeln!(stdout, "    due: {}", due)?;
                         } else {
                             // Remove the time parts, which aren't used.
-                            writeln!(stdout, "    due: {}", due.date())?;
+                            writeln!(stdout, "    due: {}", due.date_naive())?;
                         }
                     }
                     if let Some(added) = task.added {
