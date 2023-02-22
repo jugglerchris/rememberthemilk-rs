@@ -23,6 +23,8 @@ structopt = "0.3"
 confy = "0.4"
 atty = "0.2"
 termcolor = "1.1"
+env_logger = "0.10.0"
+log = "0.4.17"
 
 [[bin]]
 name = "rtm"

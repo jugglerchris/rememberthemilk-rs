@@ -561,13 +561,15 @@ impl API {
     ) -> Result<String, failure::Error> {
         let auth_string = self.sign_keys(&keys);
         let client = reqwest::Client::new();
+        log::trace!("make_authenticated_request: keys={:?}", keys);
         let req = client.request(reqwest::Method::GET, url)
                          .query(keys)
                          .query(&[("api_sig", auth_string)])
                          .build()?;
+        log::trace!("make_authenticated_request: url={}", req.url());
         let body = client.execute(req)
                 .await?.text().await?;
-            //println!("Body={}", body);
+        log::trace!("make_authenticated_request: reply body={}", body);
         Ok(body)
     }
 
@@ -633,7 +635,6 @@ impl API {
             )
             .await?;
 
-        //println!("{:?}", response);
         let auth_rep = from_str::<RTMResponse<AuthResponse>>(&response)
             .unwrap()
             .rsp;
@@ -704,7 +705,6 @@ impl API {
             let response = self
                 .make_authenticated_request(&get_rest_url(), &params)
                 .await?;
-            //eprintln!("Got response:\n{}", response);
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
                 .unwrap()
@@ -729,7 +729,6 @@ impl API {
             let response = self
                 .make_authenticated_request(&get_rest_url(), params)
                 .await?;
-            //println!("Got response:\n{}", response);
             // TODO: handle failure
             let lists = from_str::<RTMResponse<ListsResponse>>(&response)
                 .unwrap()
@@ -757,7 +756,6 @@ impl API {
             let response = self
                 .make_authenticated_request(&get_rest_url(), params)
                 .await?;
-            //println!("Got response:\n{}", response);
             // TODO: handle failure
             let tl = from_str::<RTMResponse<TimelineResponse>>(&response)
                 .unwrap()
@@ -853,7 +851,7 @@ impl API {
             let response = self
                 .make_authenticated_request(&get_rest_url(), &params)
                 .await?;
-            eprintln!("Add task response: {}", response);
+            log::trace!("Add task response: {}", response);
             let rsp = from_str::<RTMResponse<AddTaskResponse>>(&response)?.rsp;
             if let Stat::Ok = rsp.stat {
                 Ok(())

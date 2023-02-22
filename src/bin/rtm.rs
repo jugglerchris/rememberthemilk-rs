@@ -166,7 +166,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
         if let Some(v) = list.taskseries {
             stdout.reset()?;
             for ts in v {
-                //eprintln!("{:?}", ts.task);
+                log::trace!("{:?}", ts.task);
                 for task in &ts.task {
                     let time_left = task.get_time_left();
                     use rememberthemilk::TimeLeft::*;
@@ -271,6 +271,8 @@ async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
 
 #[tokio::main]
 async fn main() -> Result<(), failure::Error> {
+    env_logger::init();
+
     let opt = Opt::from_args();
     match opt.cmd {
         Command::Tasks { ref filter } => list_tasks(&opt, filter).await?,
