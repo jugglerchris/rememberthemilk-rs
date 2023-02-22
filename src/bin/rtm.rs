@@ -189,7 +189,9 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
                         }
                     };
                 }
-                writeln!(stdout, "  {}", ts.name)?;
+                write!(stdout, "  {}", ts.name)?;
+                stdout.set_color(ColorSpec::new().set_bg(Some(Color::Black)))?;
+                writeln!(stdout, "")?;
                 if opts.verbose {
                     writeln!(stdout, "   id: {}", ts.id)?;
                     writeln!(stdout, "   created: {}", ts.created)?;
