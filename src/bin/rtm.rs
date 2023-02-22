@@ -58,6 +58,9 @@ struct Opt {
     #[structopt(short, long)]
     verbose: bool,
 
+    #[structopt(short, long)]
+    smart: bool,
+
     #[structopt(default_value = "auto", long)]
     colour: ColourOption,
 
@@ -258,11 +261,11 @@ async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error> {
     Ok(())
 }
 
-async fn add_task(name: String) -> Result<(), failure::Error> {
+async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
 
-    api.add_task(&timeline, &name, None, None, None).await?;
+    api.add_task(&timeline, &name, None, None, None, opt.smart).await?;
     Ok(())
 }
 
@@ -273,7 +276,7 @@ async fn main() -> Result<(), failure::Error> {
         Command::Tasks { ref filter } => list_tasks(&opt, filter).await?,
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
-        Command::AddTask { name } => add_task(name).await?,
+        Command::AddTask { ref name } => add_task(&opt, &name).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
         Command::Logout => logout().await?,
     }

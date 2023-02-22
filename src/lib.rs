@@ -447,8 +447,8 @@ struct AddTagResponse {
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct AddTaskResponse {
     stat: Stat,
-    transaction: Transaction,
-    list: RTMLists,
+    transaction: Option<Transaction>,
+    list: Option<RTMLists>,
 }
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct RTMResponse<T> {
@@ -554,21 +554,21 @@ impl API {
         url
     }
 
-    fn make_authenticated_request<'a>(
+    async fn make_authenticated_request<'a>(
         &'a self,
         url: &'a str,
         keys: &'a [(&'a str, &'a str)],
-    ) -> impl std::future::Future<Output = Result<String, failure::Error>> + 'a {
-        // As an async fn, this doesn't compile due to (I think):
-        // https://github.com/rust-lang/rust/issues/63033
-        // One of the comments points to an explicit async block instead of using
-        // an async function as a workaround.
-        let url = self.make_authenticated_url(url, keys);
-        async move {
-            let body = reqwest::get(&url).await?.text().await?;
+    ) -> Result<String, failure::Error> {
+        let auth_string = self.sign_keys(&keys);
+        let client = reqwest::Client::new();
+        let req = client.request(reqwest::Method::GET, url)
+                         .query(keys)
+                         .query(&[("api_sig", auth_string)])
+                         .build()?;
+        let body = client.execute(req)
+                .await?.text().await?;
             //println!("Body={}", body);
-            Ok(body)
-        }
+        Ok(body)
     }
 
     async fn get_frob(&self) -> Result<String, Error> {
@@ -704,7 +704,7 @@ impl API {
             let response = self
                 .make_authenticated_request(&get_rest_url(), &params)
                 .await?;
-            eprintln!("Got response:\n{}", response);
+            //eprintln!("Got response:\n{}", response);
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
                 .unwrap()
@@ -827,6 +827,7 @@ impl API {
         list: Option<&RTMLists>,
         parent: Option<&Task>,
         external_id: Option<&str>,
+        smart: bool,
     ) -> Result<(), Error> {
         if let Some(ref tok) = self.token {
             let mut params = vec![
@@ -845,6 +846,9 @@ impl API {
             }
             if let Some(external_id) = external_id {
                 params.push(("external_id", &external_id));
+            }
+            if smart {
+                params.push(("parse", "1"));
             }
             let response = self
                 .make_authenticated_request(&get_rest_url(), &params)
