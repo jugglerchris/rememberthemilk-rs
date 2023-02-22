@@ -46,17 +46,17 @@ fn test_deser_taskseries() {
     let expected = TaskSeries {
         id: "blahid".into(),
         name: "Do the thing".into(),
-        created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
-        modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
+        created: chrono::Utc.with_ymd_and_hms(2020, 1, 1, 16, 0, 0).unwrap(),
+        modified: chrono::Utc.with_ymd_and_hms(2020, 1, 2, 13, 12, 15).unwrap(),
         repeat: Some(RRule {
             every: true,
             rule: "FREQ=WEEKLY;INTERVAL=1;WKST=MO".into(),
         }),
         task: vec![Task {
             id: "my_task_id".into(),
-            due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
-            added: Some(chrono::Utc.ymd(2020, 1, 10).and_hms(16, 0, 56)),
-            completed: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(13, 12, 11)),
+            due: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 0, 0, 0).unwrap()),
+            added: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 10, 16, 0, 56).unwrap()),
+            completed: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 13, 12, 11).unwrap()),
             deleted: None,
             has_due_time: false,
         }],
@@ -88,8 +88,8 @@ fn test_deser_task_nodue() {
     let expected = Task {
         id: "my_task_id".into(),
         due: None,
-        added: Some(chrono::Utc.ymd(2020, 1, 10).and_hms(16, 0, 56)),
-        completed: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(13, 12, 11)),
+        added: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 10, 16, 0, 56).unwrap()),
+        completed: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 13, 12, 11).unwrap()),
         deleted: None,
         has_due_time: false,
     };
@@ -153,13 +153,13 @@ fn test_deser_tasklist_response() {
                 taskseries: Some(vec![TaskSeries {
                     id: "blahid".into(),
                     name: "Do the thing".into(),
-                    created: chrono::Utc.ymd(2020, 1, 1).and_hms(16, 0, 0),
-                    modified: chrono::Utc.ymd(2020, 1, 2).and_hms(13, 12, 15),
+                    created: chrono::Utc.with_ymd_and_hms(2020, 1, 1, 16, 0, 0).unwrap(),
+                    modified: chrono::Utc.with_ymd_and_hms(2020, 1, 2, 13, 12, 15).unwrap(),
                     task: vec![Task {
                         id: "my_task_id".into(),
-                        due: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(0, 0, 0)),
-                        added: Some(chrono::Utc.ymd(2020, 1, 10).and_hms(16, 0, 56)),
-                        completed: Some(chrono::Utc.ymd(2020, 1, 12).and_hms(13, 12, 11)),
+                        due: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 0, 0, 0).unwrap()),
+                        added: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 10, 16, 0, 56).unwrap()),
+                        completed: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 13, 12, 11).unwrap()),
                         deleted: None,
                         has_due_time: false,
                     }],
