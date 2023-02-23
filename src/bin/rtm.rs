@@ -5,6 +5,10 @@ use std::collections::HashMap;
 use std::io::Write;
 use structopt::StructOpt;
 
+const RTM_APP_NAME: &'static str = "rtm";
+const RTM_AUTH_ID: &'static str = "rtm_auth";
+//const RTM_SETTINGS: &'static str = "config";
+
 #[derive(StructOpt, Debug)]
 enum Command {
     /// Operate on tasks
@@ -81,7 +85,7 @@ impl Opt {
 }
 
 async fn get_rtm_api(perm: Perms) -> Result<API, failure::Error> {
-    let config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
+    let config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
         API::from_config(config)
     } else {
@@ -110,7 +114,7 @@ async fn auth_user(api: &mut API, perm: Perms) -> Result<(), failure::Error> {
     if !api.check_auth(&auth).await? {
         bail!("Error authenticating");
     }
-    confy::store("rtm_auth_example", api.to_config())?;
+    confy::store(RTM_APP_NAME, Some(RTM_AUTH_ID), api.to_config())?;
     Ok(())
 }
 
@@ -123,9 +127,9 @@ async fn auth_app(key: String, secret: String, perm: Perms) -> Result<(), failur
 }
 
 async fn logout() -> Result<(), failure::Error> {
-    let mut config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
+    let mut config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     config.clear_user_data();
-    confy::store("rtm_auth_example", config)?;
+    confy::store(RTM_APP_NAME, Some(RTM_AUTH_ID), config)?;
     Ok(())
 }
 
