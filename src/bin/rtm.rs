@@ -1,13 +1,31 @@
 #![deny(warnings)]
 use failure::bail;
 use rememberthemilk::{Perms, API};
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::io::Write;
 use structopt::StructOpt;
 
 const RTM_APP_NAME: &'static str = "rtm";
 const RTM_AUTH_ID: &'static str = "rtm_auth";
-//const RTM_SETTINGS: &'static str = "config";
+const RTM_SETTINGS: &'static str = "config";
+
+#[derive(Serialize, Deserialize)]
+/// rtm tool user configuration.
+/// This is intended to be user-editable.
+pub struct Settings {
+    /// The default search filter for `rtm tasks` when not otherwise
+    /// specified.
+    pub filter: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            filter: "status:incomplete AND (dueBefore:today OR due:today)".into(),
+        }
+    }
+}
 
 #[derive(StructOpt, Debug)]
 enum Command {
@@ -150,9 +168,10 @@ fn format_human_time(secs: u64) -> String {
 
 async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::Error> {
     let api = get_rtm_api(Perms::Read).await?;
+    let settings: Settings = confy::load(RTM_APP_NAME, RTM_SETTINGS)?;
     let filter = match filter {
         Some(ref s) => &s[..],
-        None => "status:incomplete AND (dueBefore:today OR due:today)",
+        None => &settings.filter,
     };
     let all_tasks = api.get_tasks_filtered(filter).await?;
     let mut lists = HashMap::new();
