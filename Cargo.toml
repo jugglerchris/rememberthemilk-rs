@@ -25,9 +25,15 @@ atty = "0.2"
 termcolor = "1.1"
 env_logger = "0.10.0"
 log = "0.4.17"
+tui = { version = "0.19", optional = true }
+crossterm = { version = "0.25", optional = true }
 
 [[bin]]
 name = "rtm"
+
+[features]
+default = ["tui"]
+tui = ["dep:tui", "dep:crossterm"]
 
 [dev-dependencies]
 mockito = "0.25"

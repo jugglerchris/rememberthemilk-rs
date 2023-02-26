@@ -51,6 +51,9 @@ enum Command {
         #[structopt(default_value = "read", long)]
         perm: Perms,
     },
+    #[cfg(feature = "tui")]
+    /// Run the TUI
+    Tui,
     /// Remove the saved user token
     Logout,
 }
@@ -294,6 +297,51 @@ async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
     Ok(())
 }
 
+#[cfg(feature = "tui")]
+mod tui {
+    use tui::{
+        backend::CrosstermBackend,
+        widgets::{List, Block, Borders, BorderType, ListItem, ListState},
+        Terminal, style::{Style, Color, Modifier}
+    };
+    use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+    use std::{time::Duration, io};
+
+    pub async fn tui() -> Result<(), failure::Error> {
+        enable_raw_mode()?;
+        let stdout = io::stdout();
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
+
+        terminal.draw(|f| {
+            let size = f.size();
+            let block = Block::default()
+                .title("RTM list")
+                .borders(Borders::TOP | Borders::BOTTOM)
+                .border_style(Style::default().fg(Color::White))
+                .border_type(BorderType::Rounded)
+                .style(Style::default().bg(Color::Black));
+            let items = [
+                ListItem::new("one"),
+                ListItem::new("two"),
+                ListItem::new("three"),
+            ];
+            let list = List::new(items)
+                .block(block)
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_symbol("*");
+            let mut state: ListState = Default::default();
+            state.select(Some(1));
+            f.render_stateful_widget(list, size, &mut state);
+        })?;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        disable_raw_mode()?;
+        terminal.show_cursor()?;
+
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), failure::Error> {
     env_logger::init();
@@ -305,6 +353,8 @@ async fn main() -> Result<(), failure::Error> {
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
         Command::AddTask { ref name } => add_task(&opt, &name).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
+        #[cfg(feature = "tui")]
+        Command::Tui => tui::tui().await?,
         Command::Logout => logout().await?,
     }
 
