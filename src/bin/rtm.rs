@@ -299,13 +299,14 @@ async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
 
 #[cfg(feature = "tui")]
 mod tui {
+    use tokio_stream::StreamExt;
     use tui::{
         backend::CrosstermBackend,
         widgets::{List, Block, Borders, BorderType, ListItem, ListState},
         Terminal, style::{Style, Color, Modifier}
     };
-    use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-    use std::{time::Duration, io};
+    use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
+    use std::io;
 
     pub async fn tui() -> Result<(), failure::Error> {
         enable_raw_mode()?;
@@ -313,28 +314,58 @@ mod tui {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
-        terminal.draw(|f| {
-            let size = f.size();
-            let block = Block::default()
-                .title("RTM list")
-                .borders(Borders::TOP | Borders::BOTTOM)
-                .border_style(Style::default().fg(Color::White))
-                .border_type(BorderType::Rounded)
-                .style(Style::default().bg(Color::Black));
-            let items = [
-                ListItem::new("one"),
-                ListItem::new("two"),
-                ListItem::new("three"),
-            ];
-            let list = List::new(items)
-                .block(block)
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
-                .highlight_symbol("*");
-            let mut state: ListState = Default::default();
-            state.select(Some(1));
-            f.render_stateful_widget(list, size, &mut state);
-        })?;
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        let mut events = crossterm::event::EventStream::new();
+
+        let mut state: ListState = Default::default();
+        let mut pos = 0;
+        state.select(Some(pos));
+        let items = vec![
+            ListItem::new("one"),
+            ListItem::new("two"),
+            ListItem::new("three"),
+        ];
+        loop {
+            terminal.draw(|f| {
+                let size = f.size();
+                let block = Block::default()
+                    .title("RTM list")
+                    .borders(Borders::TOP | Borders::BOTTOM)
+                    .border_style(Style::default().fg(Color::White))
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().bg(Color::Black));
+                let list = List::new(&items[..])
+                    .block(block)
+                    .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                    .highlight_symbol("*");
+                f.render_stateful_widget(list, size, &mut state);
+            })?;
+
+            match events.next().await {
+                None => { break }
+                Some(ev) => match ev {
+                    Err(_e) => { break; }
+                    Ok(ev) => match ev {
+                        Event::Key(key) => {
+                            match key.code {
+                                KeyCode::Char('q') => break,
+                                KeyCode::Up => {
+                                    pos = pos.saturating_sub(1);
+                                    state.select(Some(pos));
+                                }
+                                KeyCode::Down => {
+                                    if pos < items.len() {
+                                        pos += 1;
+                                    }
+                                    state.select(Some(pos));
+                                }
+                                _ => {},
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         disable_raw_mode()?;
         terminal.show_cursor()?;
 

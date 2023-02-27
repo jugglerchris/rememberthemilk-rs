@@ -26,7 +26,8 @@ termcolor = "1.1"
 env_logger = "0.10.0"
 log = "0.4.17"
 tui = { version = "0.19", optional = true }
-crossterm = { version = "0.25", optional = true }
+crossterm = { version = "0.25", optional = true, features = ["event-stream"] }
+tokio-stream = "0.1.12"
 
 [[bin]]
 name = "rtm"
