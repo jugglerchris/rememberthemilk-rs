@@ -169,12 +169,17 @@ fn format_human_time(secs: u64) -> String {
     }
 }
 
+fn get_default_filter() -> Result<String, failure::Error> {
+    let settings: Settings = confy::load(RTM_APP_NAME, RTM_SETTINGS)?;
+    Ok(settings.filter)
+}
+
 async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::Error> {
     let api = get_rtm_api(Perms::Read).await?;
-    let settings: Settings = confy::load(RTM_APP_NAME, RTM_SETTINGS)?;
+    let default_filter = get_default_filter()?;
     let filter = match filter {
         Some(ref s) => &s[..],
-        None => &settings.filter,
+        None => &default_filter,
     };
     let all_tasks = api.get_tasks_filtered(filter).await?;
     let mut lists = HashMap::new();
@@ -299,6 +304,7 @@ async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
 
 #[cfg(feature = "tui")]
 mod tui {
+    use rememberthemilk::Perms;
     use tokio_stream::StreamExt;
     use tui::{
         backend::CrosstermBackend,
@@ -307,6 +313,8 @@ mod tui {
     };
     use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
     use std::io;
+
+    use crate::{get_rtm_api, get_default_filter};
 
     pub async fn tui() -> Result<(), failure::Error> {
         enable_raw_mode()?;
@@ -317,13 +325,20 @@ mod tui {
         let mut events = crossterm::event::EventStream::new();
 
         let mut state: ListState = Default::default();
+
+        let api = get_rtm_api(Perms::Read).await?;
+        let all_tasks = api.get_tasks_filtered(&get_default_filter()?).await?;
         let mut pos = 0;
         state.select(Some(pos));
-        let items = vec![
-            ListItem::new("one"),
-            ListItem::new("two"),
-            ListItem::new("three"),
-        ];
+
+        let mut items = vec![];
+        for list in all_tasks.list {
+            if let Some(v) = list.taskseries {
+                for ts in v {
+                    items.push(ListItem::new(ts.name));
+                }
+            }
+        }
         loop {
             terminal.draw(|f| {
                 let size = f.size();
