@@ -304,43 +304,70 @@ async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
 
 #[cfg(feature = "tui")]
 mod tui {
-    use rememberthemilk::Perms;
+    use rememberthemilk::{Perms, API, RTMTasks};
     use tokio_stream::StreamExt;
     use tui::{
         backend::CrosstermBackend,
         widgets::{List, Block, Borders, BorderType, ListItem, ListState},
         Terminal, style::{Style, Color, Modifier}
     };
-    use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
+    use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event, EventStream}};
     use std::io;
 
     use crate::{get_rtm_api, get_default_filter};
 
-    pub async fn tui() -> Result<(), failure::Error> {
-        enable_raw_mode()?;
-        let stdout = io::stdout();
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
+    struct Tui {
+        _api: API,
+        list_state: ListState,
+        list_pos: usize,
+        list_items: Vec<ListItem<'static>>,
+        _tasks: RTMTasks,
+        events: EventStream,
+        terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
+    }
+    enum StepResult {
+        Cont,
+        End,
+    }
+    impl Tui {
+        async fn new() -> Result<Tui, failure::Error> {
+            enable_raw_mode()?;
+            let stdout = io::stdout();
+            let backend = CrosstermBackend::new(stdout);
+            let terminal = Terminal::new(backend)?;
 
-        let mut events = crossterm::event::EventStream::new();
+            let events = crossterm::event::EventStream::new();
 
-        let mut state: ListState = Default::default();
+            let api = get_rtm_api(Perms::Read).await?;
+            let mut list_state: ListState = Default::default();
+            let tasks = api.get_tasks_filtered(&get_default_filter()?).await?;
+            let list_pos = 0;
+            list_state.select(Some(list_pos));
 
-        let api = get_rtm_api(Perms::Read).await?;
-        let all_tasks = api.get_tasks_filtered(&get_default_filter()?).await?;
-        let mut pos = 0;
-        state.select(Some(pos));
-
-        let mut items = vec![];
-        for list in all_tasks.list {
-            if let Some(v) = list.taskseries {
-                for ts in v {
-                    items.push(ListItem::new(ts.name));
+            let mut list_items = vec![];
+            for list in &tasks.list {
+                if let Some(v) = &list.taskseries {
+                    for ts in v {
+                        list_items.push(ListItem::new(ts.name.clone()));
+                    }
                 }
             }
+
+            Ok(Tui {
+                _api: api,
+                list_state,
+                list_pos,
+                list_items,
+                _tasks: tasks,
+                events,
+                terminal,
+            })
         }
-        loop {
-            terminal.draw(|f| {
+
+        pub async fn step(&mut self) -> Result<StepResult, failure::Error> {
+            let list_state = &mut self.list_state;
+            let list_items = &self.list_items;
+            self.terminal.draw(move |f| {
                 let size = f.size();
                 let block = Block::default()
                     .title("RTM list")
@@ -348,41 +375,67 @@ mod tui {
                     .border_style(Style::default().fg(Color::White))
                     .border_type(BorderType::Rounded)
                     .style(Style::default().bg(Color::Black));
-                let list = List::new(&items[..])
+                let list = List::new(&list_items[..])
                     .block(block)
                     .highlight_style(Style::default().add_modifier(Modifier::BOLD))
                     .highlight_symbol("*");
-                f.render_stateful_widget(list, size, &mut state);
+                f.render_stateful_widget(list, size, list_state);
             })?;
 
-            match events.next().await {
-                None => { break }
+            let result = match self.events.next().await {
+                None => { return Ok(StepResult::End); }
                 Some(ev) => match ev {
-                    Err(_e) => { break; }
+                    Err(e) => { return Err(e.into()); }
                     Ok(ev) => match ev {
                         Event::Key(key) => {
                             match key.code {
-                                KeyCode::Char('q') => break,
+                                KeyCode::Char('q') => {
+                                    StepResult::End
+                                }
                                 KeyCode::Up => {
-                                    pos = pos.saturating_sub(1);
-                                    state.select(Some(pos));
+                                    self.list_pos = self.list_pos.saturating_sub(1);
+                                    self.list_state.select(Some(self.list_pos));
+                                    StepResult::Cont
                                 }
                                 KeyCode::Down => {
-                                    if pos < items.len() {
-                                        pos += 1;
+                                    if self.list_pos < self.list_items.len() {
+                                        self.list_pos += 1;
                                     }
-                                    state.select(Some(pos));
+                                    self.list_state.select(Some(self.list_pos));
+                                    StepResult::Cont
                                 }
-                                _ => {},
+                                _ => StepResult::Cont,
                             }
                         }
-                        _ => {}
+                        _ => StepResult::Cont,
                     }
                 }
-            }
+            };
+            Ok(result)
         }
-        disable_raw_mode()?;
-        terminal.show_cursor()?;
+
+        pub async fn run(&mut self) -> Result<(), failure::Error> {
+            loop {
+                match self.step().await? {
+                    StepResult::End => break,
+                    StepResult::Cont => (), // continue
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for Tui {
+        fn drop(&mut self) {
+            disable_raw_mode().unwrap();
+            self.terminal.show_cursor().unwrap();
+        }
+    }
+
+    pub async fn tui() -> Result<(), failure::Error> {
+        let mut tui = Tui::new().await?;
+
+        tui.run().await?;
 
         Ok(())
     }
