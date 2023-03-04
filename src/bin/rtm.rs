@@ -308,8 +308,8 @@ mod tui {
     use tokio_stream::StreamExt;
     use tui::{
         backend::CrosstermBackend,
-        widgets::{List, Block, Borders, BorderType, ListItem, ListState},
-        Terminal, style::{Style, Color, Modifier}
+        widgets::{List, Block, Borders, BorderType, ListItem, ListState, Paragraph},
+        Terminal, style::{Style, Color, Modifier}, text::{Spans, Span}, layout::Rect
     };
     use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event, EventStream}};
     use std::io;
@@ -321,16 +321,18 @@ mod tui {
         list_state: ListState,
         list_pos: usize,
         list_items: Vec<ListItem<'static>>,
-        _tasks: RTMTasks,
+        list_paths: Vec<(usize, usize)>,
+        tasks: RTMTasks,
         events: EventStream,
         terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
+        show_task: bool,
     }
     enum StepResult {
         Cont,
         End,
     }
     impl Tui {
-        async fn new() -> Result<Tui, failure::Error> {
+        pub async fn new() -> Result<Tui, failure::Error> {
             enable_raw_mode()?;
             let stdout = io::stdout();
             let backend = CrosstermBackend::new(stdout);
@@ -345,28 +347,37 @@ mod tui {
             list_state.select(Some(list_pos));
 
             let mut list_items = vec![];
-            for list in &tasks.list {
+            let mut list_paths = vec![];
+            for (li, list) in tasks.list.iter().enumerate() {
                 if let Some(v) = &list.taskseries {
-                    for ts in v {
+                    for (ti, ts) in v.iter().enumerate() {
+                        list_paths.push((li, ti));
                         list_items.push(ListItem::new(ts.name.clone()));
                     }
                 }
             }
+            let show_task = false;
 
             Ok(Tui {
                 _api: api,
                 list_state,
                 list_pos,
                 list_items,
-                _tasks: tasks,
+                list_paths,
+                tasks,
                 events,
                 terminal,
+                show_task,
             })
         }
 
-        pub async fn step(&mut self) -> Result<StepResult, failure::Error> {
+        async fn draw(&mut self) -> Result<(), failure::Error> {
             let list_state = &mut self.list_state;
             let list_items = &self.list_items;
+            let list_paths = &self.list_paths;
+            let show_task = self.show_task;
+            let list_pos = self.list_pos;
+            let tasks = &self.tasks;
             self.terminal.draw(move |f| {
                 let size = f.size();
                 let block = Block::default()
@@ -379,8 +390,48 @@ mod tui {
                     .block(block)
                     .highlight_style(Style::default().add_modifier(Modifier::BOLD))
                     .highlight_symbol("*");
-                f.render_stateful_widget(list, size, list_state);
+                let mut list_size = size;
+                if show_task {
+                    list_size.height = list_size.height / 2;
+                }
+                f.render_stateful_widget(list, list_size, list_state);
+
+                if show_task {
+                    let block = Block::default()
+                        .title("Task")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::White))
+                        .border_type(BorderType::Rounded)
+                        .style(Style::default().bg(Color::Black));
+                    let (li, ti) = list_paths[list_pos];
+                    let list = &tasks.list[li];
+                    let series = &list.taskseries.as_ref().unwrap()[ti];
+                    let mut text = vec![
+                        Spans::from(vec![
+                            Span::raw(series.name.clone()),
+                        ])];
+                    if !series.tags.is_empty() {
+                        let mut spans = vec![
+                            Span::raw("Tags: ")];
+                        for tag in &series.tags {
+                            spans.push(Span::raw(tag.clone()));
+                            spans.push(", ".into());
+                        }
+                        text.push( Spans::from(spans));
+                    }
+                    let par = Paragraph::new(text)
+                        .block(block);
+                    let area = Rect::new(
+                        0, list_size.height,
+                        size.width, size.height - list_size.height);
+                    f.render_widget(par, area);
+                }
             })?;
+            Ok(())
+        }
+
+        pub async fn step(&mut self) -> Result<StepResult, failure::Error> {
+            self.draw().await?;
 
             let result = match self.events.next().await {
                 None => { return Ok(StepResult::End); }
@@ -392,13 +443,17 @@ mod tui {
                                 KeyCode::Char('q') => {
                                     StepResult::End
                                 }
+                                KeyCode::Enter => {
+                                    self.show_task = !self.show_task;
+                                    StepResult::Cont
+                                }
                                 KeyCode::Up => {
                                     self.list_pos = self.list_pos.saturating_sub(1);
                                     self.list_state.select(Some(self.list_pos));
                                     StepResult::Cont
                                 }
                                 KeyCode::Down => {
-                                    if self.list_pos < self.list_items.len() {
+                                    if self.list_pos+1 < self.list_items.len() {
                                         self.list_pos += 1;
                                     }
                                     self.list_state.select(Some(self.list_pos));
