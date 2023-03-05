@@ -309,7 +309,7 @@ mod tui {
     use tokio_stream::StreamExt;
     use tui::{
         backend::CrosstermBackend,
-        widgets::{List, Block, Borders, BorderType, ListItem, ListState, Paragraph},
+        widgets::{List, Block, Borders, BorderType, ListItem, ListState, Paragraph, Clear},
         Terminal, style::{Style, Color, Modifier}, text::{Spans, Span}, layout::Rect
     };
     use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event, EventStream}};
@@ -318,7 +318,8 @@ mod tui {
     use crate::{get_rtm_api, get_default_filter};
 
     struct Tui {
-        _api: API,
+        api: API,
+        filter: String,
         list_state: ListState,
         list_pos: usize,
         list_items: Vec<ListItem<'static>>,
@@ -327,6 +328,9 @@ mod tui {
         events: EventStream,
         terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
         show_task: bool,
+        input_prompt: &'static str,
+        input_value: String,
+        show_input: bool,
     }
     enum StepResult {
         Cont,
@@ -342,10 +346,33 @@ mod tui {
             let events = crossterm::event::EventStream::new();
 
             let api = get_rtm_api(Perms::Read).await?;
-            let mut list_state: ListState = Default::default();
-            let tasks = api.get_tasks_filtered(&get_default_filter()?).await?;
+            let list_state: ListState = Default::default();
+            let filter = get_default_filter()?;
+            let show_task = false;
+
+            let mut tui = Tui {
+                api,
+                filter,
+                list_state,
+                list_pos: 0,
+                list_items: vec![],
+                list_paths: vec![],
+                tasks: Default::default(),
+                events,
+                terminal,
+                show_task,
+                input_prompt: "",
+                input_value: String::new(),
+                show_input: false,
+            };
+            tui.update_tasks().await?;
+
+            Ok(tui)
+        }
+        async fn update_tasks(&mut self) -> Result<(), failure::Error> {
+            let tasks = self.api.get_tasks_filtered(&self.filter).await?;
             let list_pos = 0;
-            list_state.select(Some(list_pos));
+            self.list_state.select(Some(list_pos));
 
             let mut list_items = vec![];
             let mut list_paths = vec![];
@@ -357,19 +384,10 @@ mod tui {
                     }
                 }
             }
-            let show_task = false;
-
-            Ok(Tui {
-                _api: api,
-                list_state,
-                list_pos,
-                list_items,
-                list_paths,
-                tasks,
-                events,
-                terminal,
-                show_task,
-            })
+            self.tasks = tasks;
+            self.list_items = list_items;
+            self.list_paths = list_paths;
+            Ok(())
         }
 
         async fn draw(&mut self) -> Result<(), failure::Error> {
@@ -377,8 +395,11 @@ mod tui {
             let list_items = &self.list_items;
             let list_paths = &self.list_paths;
             let show_task = self.show_task;
+            let show_input = self.show_input;
             let list_pos = self.list_pos;
             let tasks = &self.tasks;
+            let input_prompt = self.input_prompt;
+            let input_value = &self.input_value;
             self.terminal.draw(move |f| {
                 let size = f.size();
                 let block = Block::default()
@@ -464,8 +485,62 @@ mod tui {
                         size.width, size.height - list_size.height);
                     f.render_widget(par, area);
                 }
+                if show_input {
+                    let block = Block::default()
+                        .title(input_prompt)
+                        .borders(Borders::TOP)
+                        .border_style(Style::default().fg(Color::White))
+                        .style(Style::default().bg(Color::Black));
+                    let area = Rect::new(0, size.height-2, size.width, 2);
+                    f.render_widget(Clear, area);
+
+                    let text = vec![
+                        Span::raw(input_value.clone()),
+                        Span::raw("_"),
+                    ];
+                    f.render_widget(
+                        Paragraph::new(vec![Spans::from(text)])
+                            .block(block), area);
+                }
             })?;
             Ok(())
+        }
+
+        async fn input(&mut self, prompt: &'static str) -> Result<String, failure::Error> {
+            self.input_value = String::new();
+            self.input_prompt = prompt;
+            self.show_input = true;
+            loop {
+                self.draw().await?;
+                match self.events.next().await {
+                    None => { return Ok("".into()); }
+                    Some(ev) => match ev {
+                        Err(e) => { return Err(e.into()); }
+                        Ok(ev) => match ev {
+                            Event::Key(key) => {
+                                match key.code {
+                                    KeyCode::Char(c) => {
+                                        self.input_value.push(c);
+                                    }
+                                    KeyCode::Enter => {
+                                        break;
+                                    }
+                                    KeyCode::Esc => {
+                                        return Ok(String::new());
+                                    }
+                                    _ => (),
+                                }
+                            }
+                            _ => ()
+                        }
+                    }
+                }
+            }
+            self.show_input = false;
+
+            let mut result = String::new();
+            std::mem::swap(&mut result, &mut self.input_value);
+            Ok(result)
         }
 
         pub async fn step(&mut self) -> Result<StepResult, failure::Error> {
@@ -480,6 +555,14 @@ mod tui {
                             match key.code {
                                 KeyCode::Char('q') => {
                                     StepResult::End
+                                }
+                                KeyCode::Char('g') => {
+                                    let filter = self.input("Enter RTM filter:").await?;
+                                    if !filter.is_empty() {
+                                        self.filter = filter;
+                                        self.update_tasks().await?;
+                                    }
+                                    StepResult::Cont
                                 }
                                 KeyCode::Enter => {
                                     self.show_task = !self.show_task;

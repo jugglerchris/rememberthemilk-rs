@@ -387,7 +387,7 @@ impl Task {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Default)]
 /// The response from fetching a list of tasks.
 pub struct RTMTasks {
     rev: String,
