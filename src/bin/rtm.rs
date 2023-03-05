@@ -413,9 +413,12 @@ mod tui {
                     if !series.tags.is_empty() {
                         let mut spans = vec![
                             Span::raw("Tags: ")];
+                        let tag_style = Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD);
                         for tag in &series.tags {
-                            spans.push(Span::raw(tag.clone()));
-                            spans.push(", ".into());
+                            spans.push(Span::styled(tag.clone(), tag_style));
+                            spans.push(" ".into());
                         }
                         text.push( Spans::from(spans));
                     }
