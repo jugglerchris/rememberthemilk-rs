@@ -304,6 +304,7 @@ async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
 
 #[cfg(feature = "tui")]
 mod tui {
+    use chrono::{DateTime, Utc};
     use rememberthemilk::{Perms, API, RTMTasks};
     use tokio_stream::StreamExt;
     use tui::{
@@ -421,6 +422,40 @@ mod tui {
                             spans.push(" ".into());
                         }
                         text.push( Spans::from(spans));
+                    }
+                    if let Some(repeat) = &series.repeat {
+                        let style = Style::default()
+                            .fg(Color::Blue)
+                            .add_modifier(Modifier::BOLD);
+                        let mut spans = vec![
+                            Span::raw("Repeat: ")];
+                        if repeat.every {
+                            spans.push(Span::raw("every "));
+                        } else {
+                            spans.push(Span::raw("after "));
+                        }
+                        spans.push(
+                            Span::styled(repeat.rule.clone(), style));
+                        text.push( Spans::from(spans));
+                    }
+                    for task in &series.task {
+                        fn add_date_field(text: &mut Vec<Spans>, heading: &'static str,
+                                          value: &Option<DateTime<Utc>>,
+                                          color: Color) {
+                            if let Some(date) = value {
+                                let style = Style::default()
+                                    .fg(color)
+                                    .add_modifier(Modifier::BOLD);
+                                let mut spans = vec![
+                                    Span::raw(heading)];
+                                spans.push(
+                                    Span::styled(format!("{}", date), style));
+                                text.push( Spans::from(spans));
+                            }
+                        }
+                        add_date_field(&mut text, "Due: ", &task.due, Color::Yellow);
+                        add_date_field(&mut text, "Completed: ", &task.completed, Color::Magenta);
+                        add_date_field(&mut text, "Deleted: ", &task.deleted, Color::Red);
                     }
                     let par = Paragraph::new(text)
                         .block(block);
