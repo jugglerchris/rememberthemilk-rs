@@ -28,6 +28,7 @@ log = "0.4.17"
 tui = { version = "0.19", optional = true }
 crossterm = { version = "0.25", optional = true, features = ["event-stream"] }
 tokio-stream = "0.1.12"
+unicode-width = "0.1.10"
 
 [[bin]]
 name = "rtm"

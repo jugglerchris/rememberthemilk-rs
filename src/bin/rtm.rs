@@ -27,6 +27,33 @@ impl Default for Settings {
     }
 }
 
+fn tail_end(input: &str, width: usize) -> String {
+    let tot_width = unicode_width::UnicodeWidthStr::width(input);
+    if tot_width <= width {
+        // It fits, no problem.
+        return input.into();
+    }
+    // Otherwise, trim off the start, making space for a ...
+    let mut result = "…".to_string();
+    let elipsis_width = unicode_width::UnicodeWidthStr::width(result.as_str());
+    let space_needed = tot_width - (width - elipsis_width);
+
+    let mut removed_space = 0;
+    let mut ci = input.char_indices();
+
+    for (_, c) in &mut ci {
+        if let Some(w) = unicode_width::UnicodeWidthChar::width(c) {
+            removed_space += w;
+            if removed_space >= space_needed {
+                break;
+            }
+        }
+    }
+    let (start, _) = ci.next().unwrap();
+    result.push_str(&input[start..]);
+    result
+}
+
 #[derive(StructOpt, Debug)]
 enum Command {
     /// Operate on tasks
@@ -315,7 +342,7 @@ mod tui {
     use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event, EventStream}};
     use std::io;
 
-    use crate::{get_rtm_api, get_default_filter};
+    use crate::{get_rtm_api, get_default_filter, tail_end};
 
     struct Tui {
         api: API,
@@ -498,8 +525,9 @@ mod tui {
                     let area = Rect::new(0, size.height-2, size.width, 2);
                     f.render_widget(Clear, area);
 
+                    let visible_value = tail_end(input_value, size.width as usize -1);
                     let text = vec![
-                        Span::raw(input_value.clone()),
+                        Span::raw(visible_value),
                         Span::raw("_"),
                     ];
                     f.render_widget(
@@ -511,7 +539,7 @@ mod tui {
         }
 
         async fn input(&mut self, prompt: &'static str) -> Result<String, failure::Error> {
-            self.input_value = String::new();
+            self.input_value = self.filter.clone();
             self.input_prompt = prompt;
             self.show_input = true;
             loop {
@@ -529,7 +557,11 @@ mod tui {
                                     KeyCode::Enter => {
                                         break;
                                     }
+                                    KeyCode::Backspace => {
+                                        let _ = self.input_value.pop();
+                                    }
                                     KeyCode::Esc => {
+                                        self.show_input = false;
                                         return Ok(String::new());
                                     }
                                     _ => (),
