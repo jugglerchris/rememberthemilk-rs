@@ -384,9 +384,13 @@ mod tui {
                     }
                 }
             }
+            if list_items.is_empty() {
+                list_items.push(ListItem::new("[No tasks in current list]"));
+            }
             self.tasks = tasks;
             self.list_items = list_items;
             self.list_paths = list_paths;
+            self.list_pos = list_pos;
             Ok(())
         }
 
@@ -418,7 +422,7 @@ mod tui {
                 }
                 f.render_stateful_widget(list, list_size, list_state);
 
-                if show_task {
+                if show_task && !list_paths.is_empty() {
                     let block = Block::default()
                         .title("Task")
                         .borders(Borders::ALL)
