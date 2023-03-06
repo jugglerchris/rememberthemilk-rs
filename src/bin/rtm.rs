@@ -604,12 +604,12 @@ mod tui {
                                     self.show_task = !self.show_task;
                                     StepResult::Cont
                                 }
-                                KeyCode::Up => {
+                                KeyCode::Up | KeyCode::Char('k') => {
                                     self.list_pos = self.list_pos.saturating_sub(1);
                                     self.list_state.select(Some(self.list_pos));
                                     StepResult::Cont
                                 }
-                                KeyCode::Down => {
+                                KeyCode::Down| KeyCode::Char('j')  => {
                                     if self.list_pos+1 < self.list_items.len() {
                                         self.list_pos += 1;
                                     }
