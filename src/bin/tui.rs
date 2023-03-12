@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use rememberthemilk::{Perms, API, RTMTasks};
+use rememberthemilk::{Perms, API, RTMTasks, RTMList};
 use tokio_stream::StreamExt;
 use tui::{
     backend::CrosstermBackend,
@@ -11,13 +11,20 @@ use std::io;
 
 use crate::{get_rtm_api, get_default_filter, tail_end};
 
+enum DisplayMode {
+    Tasks,
+    Lists,
+}
+
 struct UiState {
+    display_mode: DisplayMode,
     filter: String,
     list_state: ListState,
     list_pos: usize,
     list_items: Vec<ListItem<'static>>,
     list_paths: Vec<(usize, usize)>,
     tasks: RTMTasks,
+    lists: Vec<RTMList>,
     show_task: bool,
     input_prompt: &'static str,
     input_value: String,
@@ -47,14 +54,17 @@ impl Tui {
         let list_state: ListState = Default::default();
         let filter = get_default_filter()?;
         let show_task = false;
+        let display_mode = DisplayMode::Tasks;
 
         let ui_state = UiState {
+            display_mode,
             filter,
             list_state,
             list_pos: 0,
             list_items: vec![],
             list_paths: vec![],
             tasks: Default::default(),
+            lists: Default::default(),
             show_task,
             input_prompt: "",
             input_value: String::new(),
@@ -93,6 +103,26 @@ impl Tui {
         self.ui_state.list_items = list_items;
         self.ui_state.list_paths = list_paths;
         self.ui_state.list_pos = list_pos;
+        self.ui_state.display_mode = DisplayMode::Tasks;
+        Ok(())
+    }
+
+    async fn update_lists(&mut self) -> Result<(), failure::Error> {
+        let lists = self.api.get_lists().await?;
+        let list_pos = 0;
+        self.ui_state.list_state.select(Some(list_pos));
+
+        let mut list_items = vec![];
+        for list in &lists {
+            list_items.push(ListItem::new(list.name.clone()));
+        }
+        if list_items.is_empty() {
+            list_items.push(ListItem::new("[No lists]"));
+        }
+        self.ui_state.lists = lists;
+        self.ui_state.list_items = list_items;
+        self.ui_state.list_pos = list_pos;
+        self.ui_state.display_mode = DisplayMode::Lists;
         Ok(())
     }
 
@@ -265,6 +295,10 @@ impl Tui {
                                     self.ui_state.filter = filter;
                                     self.update_tasks().await?;
                                 }
+                                StepResult::Cont
+                            }
+                            KeyCode::Char('L') => {
+                                self.update_lists().await?;
                                 StepResult::Cont
                             }
                             KeyCode::Enter => {
