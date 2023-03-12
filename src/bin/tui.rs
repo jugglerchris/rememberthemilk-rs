@@ -16,6 +16,12 @@ enum DisplayMode {
     Lists,
 }
 
+struct ListDispState {
+    list: RTMList,
+    opened: bool,
+    _tasks: Option<RTMTasks>,
+}
+
 struct UiState {
     display_mode: DisplayMode,
     filter: String,
@@ -24,7 +30,7 @@ struct UiState {
     list_items: Vec<ListItem<'static>>,
     list_paths: Vec<(usize, usize)>,
     tasks: RTMTasks,
-    lists: Vec<RTMList>,
+    lists: Vec<ListDispState>,
     show_task: bool,
     input_prompt: &'static str,
     input_value: String,
@@ -107,23 +113,37 @@ impl Tui {
         Ok(())
     }
 
-    async fn update_lists(&mut self) -> Result<(), failure::Error> {
-        let lists = self.api.get_lists().await?;
-        let list_pos = 0;
-        self.ui_state.list_state.select(Some(list_pos));
-
+    async fn update_list_display(&mut self) -> Result<(), failure::Error> {
         let mut list_items = vec![];
-        for list in &lists {
-            list_items.push(ListItem::new(list.name.clone()));
+        let mut list_paths = vec![];
+        for (i, list) in self.ui_state.lists.iter().enumerate() {
+            list_items.push(ListItem::new(list.list.name.clone()));
+            list_paths.push((i, 0));
+            if list.opened {
+                list_items.push(ListItem::new(format!("  task")));
+                list_paths.push((i, 1));
+            }
         }
         if list_items.is_empty() {
             list_items.push(ListItem::new("[No lists]"));
         }
-        self.ui_state.lists = lists;
         self.ui_state.list_items = list_items;
-        self.ui_state.list_pos = list_pos;
+        self.ui_state.list_paths = list_paths;
         self.ui_state.display_mode = DisplayMode::Lists;
         Ok(())
+    }
+
+    async fn update_lists(&mut self) -> Result<(), failure::Error> {
+        let lists = self.api.get_lists().await?;
+        self.ui_state.list_state.select(Some(0));
+
+        self.ui_state.lists = lists.into_iter().map(|l| ListDispState {
+            list: l,
+            opened: false,
+            _tasks: None,
+        }).collect();
+        self.ui_state.list_pos = 0;
+        self.update_list_display().await
     }
 
     async fn draw(&mut self) -> Result<(), failure::Error> {
@@ -302,7 +322,21 @@ impl Tui {
                                 StepResult::Cont
                             }
                             KeyCode::Enter => {
-                                self.ui_state.show_task = !self.ui_state.show_task;
+                                match self.ui_state.display_mode {
+                                    DisplayMode::Tasks => {
+                                        self.ui_state.show_task = !self.ui_state.show_task;
+                                    }
+                                    DisplayMode::Lists => {
+                                        // Expand/unexpand the list
+                                        if self.ui_state.list_items.len() > 0 {
+                                            let (li, ti) = self.ui_state.list_paths[self.ui_state.list_pos];
+                                            if ti == 0 {
+                                                self.ui_state.lists[li].opened = !self.ui_state.lists[li].opened;
+                                            }
+                                        }
+                                        self.update_list_display().await?;
+                                    }
+                                }
                                 StepResult::Cont
                             }
                             KeyCode::Up | KeyCode::Char('k') => {
