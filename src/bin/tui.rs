@@ -385,7 +385,7 @@ impl Tui {
                                                 let new_opened = !self.ui_state.lists[li].opened;
                                                 self.ui_state.lists[li].opened = new_opened;
                                                 if new_opened {
-                                                    get_tasks(&self.api, &mut self.ui_state.lists[li]).await?;
+                                                    get_tasks(&self.api, &self.ui_state.filter, &mut self.ui_state.lists[li]).await?;
                                                 }
                                             }
                                         }
@@ -427,8 +427,8 @@ impl Tui {
     }
 }
 
-async fn get_tasks(api: &rememberthemilk::API, list_state: &mut ListDispState) -> Result<(), failure::Error> {
-    let tasks = api.get_tasks_in_list(&list_state.list.id, "").await?;
+async fn get_tasks(api: &rememberthemilk::API, filter: &str, list_state: &mut ListDispState) -> Result<(), failure::Error> {
+    let tasks = api.get_tasks_in_list(&list_state.list.id, filter).await?;
     list_state.tasks = Some(tasks);
     Ok(())
 }
