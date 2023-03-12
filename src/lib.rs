@@ -715,6 +715,46 @@ impl API {
             bail!("Unable to fetch tasks")
         }
     }
+
+    /// Retrieve a filtered list of tasks within one list.
+    ///
+    /// The `list_id` is a lists's id.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn get_tasks_in_list(&self, list_id: &str, filter: &str) -> Result<RTMTasks, Error> {
+        if let Some(ref tok) = self.token {
+            let mut params = vec![
+                ("method", "rtm.tasks.getList"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("v", "2"),
+                ("list_id", list_id),
+            ];
+            if filter != "" {
+                params.push(("filter", filter));
+            }
+            let response = self
+                .make_authenticated_request(&get_rest_url(), &params)
+                .await?;
+            // TODO: handle failure
+            let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
+                .unwrap()
+                .rsp
+                .tasks;
+            Ok(tasklist)
+        } else {
+            bail!("Unable to fetch tasks")
+        }
+    }
+
     /// Request a list of rememberthemilk lists.
     ///
     /// Requires a valid user authentication token.

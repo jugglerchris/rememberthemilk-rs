@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use rememberthemilk::{Perms, API, RTMTasks, RTMList};
+use rememberthemilk::{Perms, API, RTMTasks, RTMList, TaskSeries};
 use tokio_stream::StreamExt;
 use tui::{
     backend::CrosstermBackend,
@@ -19,7 +19,7 @@ enum DisplayMode {
 struct ListDispState {
     list: RTMList,
     opened: bool,
-    _tasks: Option<RTMTasks>,
+    tasks: Option<RTMTasks>,
 }
 
 struct UiState {
@@ -35,6 +35,57 @@ struct UiState {
     input_prompt: &'static str,
     input_value: String,
     show_input: bool,
+}
+
+struct RtmTaskListIterator<'t> {
+    tasks: &'t RTMTasks,
+    next_list_idx: Option<usize>,
+    next_task_idx: usize,
+}
+
+impl<'t> RtmTaskListIterator<'t> {
+    pub fn new(tasks: &'t RTMTasks) -> Self {
+        RtmTaskListIterator {
+            tasks,
+            next_list_idx: Some(0),
+            next_task_idx: 0,
+        }
+    }
+}
+
+impl<'t> Iterator for RtmTaskListIterator<'t> {
+    type Item = &'t TaskSeries;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let list_idx = match self.next_list_idx {
+                Some(idx) => idx,
+                None => { return None; }
+            };
+            if list_idx >= self.tasks.list.len() {
+                // We're done.
+                self.next_list_idx = None;
+                return None
+            }
+            let list = &self.tasks.list[list_idx];
+            if let Some(vseries) = list.taskseries.as_ref() {
+                if self.next_task_idx >= vseries.len() {
+                    // Try the next list
+                    self.next_list_idx = Some(list_idx + 1);
+                    self.next_task_idx = 0;
+                    continue;
+                }
+                let idx = self.next_task_idx;
+                self.next_task_idx += 1;
+                return Some(&vseries[idx])
+            } else {
+                // No taskseries
+                self.next_list_idx  = Some(list_idx + 1);
+                self.next_task_idx = 0;
+                continue;
+            }
+        }
+    }
 }
 
 struct Tui {
@@ -94,13 +145,9 @@ impl Tui {
 
         let mut list_items = vec![];
         let mut list_paths = vec![];
-        for (li, list) in tasks.list.iter().enumerate() {
-            if let Some(v) = &list.taskseries {
-                for (ti, ts) in v.iter().enumerate() {
-                    list_paths.push((li, ti));
-                    list_items.push(ListItem::new(ts.name.clone()));
-                }
-            }
+        for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
+            list_paths.push((ti, 0));
+            list_items.push(ListItem::new(ts.name.clone()));
         }
         if list_items.is_empty() {
             list_items.push(ListItem::new("[No tasks in current list]"));
@@ -120,8 +167,12 @@ impl Tui {
             list_items.push(ListItem::new(list.list.name.clone()));
             list_paths.push((i, 0));
             if list.opened {
-                list_items.push(ListItem::new(format!("  task")));
-                list_paths.push((i, 1));
+                if let Some(tasks) = list.tasks.as_ref() {
+                    for (ti, task) in RtmTaskListIterator::new(tasks).enumerate() {
+                        list_paths.push((i, ti+1));
+                        list_items.push(ListItem::new(format!("  {}", task.name)));
+                    }
+                }
             }
         }
         if list_items.is_empty() {
@@ -140,9 +191,10 @@ impl Tui {
         self.ui_state.lists = lists.into_iter().map(|l| ListDispState {
             list: l,
             opened: false,
-            _tasks: None,
+            tasks: None,
         }).collect();
         self.ui_state.list_pos = 0;
+        self.ui_state.show_task = false;
         self.update_list_display().await
     }
 
@@ -173,9 +225,8 @@ impl Tui {
                     .border_style(Style::default().fg(Color::White))
                     .border_type(BorderType::Rounded)
                     .style(Style::default().bg(Color::Black));
-                let (li, ti) = ui_state.list_paths[ui_state.list_pos];
-                let list = &ui_state.tasks.list[li];
-                let series = &list.taskseries.as_ref().unwrap()[ti];
+                let (li, _) = ui_state.list_paths[ui_state.list_pos];
+                let series = RtmTaskListIterator::new(&ui_state.tasks).nth(li).unwrap();
                 let mut text = vec![
                     Spans::from(vec![
                         Span::raw(series.name.clone()),
@@ -331,7 +382,11 @@ impl Tui {
                                         if self.ui_state.list_items.len() > 0 {
                                             let (li, ti) = self.ui_state.list_paths[self.ui_state.list_pos];
                                             if ti == 0 {
-                                                self.ui_state.lists[li].opened = !self.ui_state.lists[li].opened;
+                                                let new_opened = !self.ui_state.lists[li].opened;
+                                                self.ui_state.lists[li].opened = new_opened;
+                                                if new_opened {
+                                                    get_tasks(&self.api, &mut self.ui_state.lists[li]).await?;
+                                                }
                                             }
                                         }
                                         self.update_list_display().await?;
@@ -370,6 +425,12 @@ impl Tui {
         }
         Ok(())
     }
+}
+
+async fn get_tasks(api: &rememberthemilk::API, list_state: &mut ListDispState) -> Result<(), failure::Error> {
+    let tasks = api.get_tasks_in_list(&list_state.list.id, "").await?;
+    list_state.tasks = Some(tasks);
+    Ok(())
 }
 
 impl Drop for Tui {
