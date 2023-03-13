@@ -114,6 +114,7 @@ impl RTMConfig {
 }
 
 /// The rememberthemilk API object.  All rememberthemilk operations are done using methods on here.
+#[derive(Clone)]
 pub struct API {
     api_key: String,
     api_secret: String,

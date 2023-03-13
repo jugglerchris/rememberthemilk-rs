@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use rememberthemilk::{Perms, API, RTMTasks, RTMList, TaskSeries};
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::StreamExt;
 use tui::{
     backend::CrosstermBackend,
@@ -12,6 +12,7 @@ use std::{io, borrow::Cow};
 
 use crate::{get_rtm_api, get_default_filter, tail_end};
 
+#[derive(Copy, Clone)]
 enum DisplayMode {
     Tasks,
     Lists,
@@ -41,10 +42,12 @@ struct UiState {
     list_paths: Vec<(usize, usize)>,
     tasks: RTMTasks,
     lists: Vec<ListDispState>,
+    lists_loading: bool,
     show_task: bool,
     input_prompt: &'static str,
     input_value: String,
     show_input: bool,
+    event_tx: Sender<TuiEvent>,
 }
 
 struct RtmTaskListIterator<'t> {
@@ -123,12 +126,15 @@ impl Tui {
         let mut events = crossterm::event::EventStream::new();
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(10);
 
-        tokio::spawn(async move {
-            event_tx.send(TuiEvent::StateChanged).await.map_err(|_|()).unwrap();
-            while let Some(evt) = events.next().await {
-                event_tx.send(TuiEvent::Input(evt)).await.map_err(|_|()).unwrap();
-            }
-        });
+        {
+            let event_tx = event_tx.clone();
+            tokio::spawn(async move {
+                event_tx.send(TuiEvent::StateChanged).await.map_err(|_|()).unwrap();
+                while let Some(evt) = events.next().await {
+                    event_tx.send(TuiEvent::Input(evt)).await.map_err(|_|()).unwrap();
+                }
+            });
+        }
 
         let api = get_rtm_api(Perms::Read).await?;
         let list_state: ListState = Default::default();
@@ -145,10 +151,12 @@ impl Tui {
             list_paths: vec![],
             tasks: Default::default(),
             lists: Default::default(),
+            lists_loading: false,
             show_task,
             input_prompt: "",
             input_value: String::new(),
             show_input: false,
+            event_tx,
         };
 
         let mut tui = Tui {
@@ -192,7 +200,12 @@ impl Tui {
         let mut list_paths = vec![];
         let mut ui_state = self.ui_state.lock().unwrap();
         for (i, list) in ui_state.lists.iter().enumerate() {
-            list_items.push(ListItem::new(list.list.name.clone()));
+            if let Some(tasks) = list.tasks.as_ref() {
+                list_items.push(ListItem::new(
+                        format!("{} [{}]", &list.list.name, tasks.list.len())));
+            } else {
+                list_items.push(ListItem::new(list.list.name.clone()));
+            }
             list_paths.push((i, 0));
             if list.opened {
                 if let Some(tasks) = list.tasks.as_ref() {
@@ -204,28 +217,70 @@ impl Tui {
             }
         }
         if list_items.is_empty() {
-            list_items.push(ListItem::new("[No lists]"));
+            if ui_state.lists_loading {
+                list_items.push(ListItem::new("Loading..."));
+            } else {
+                list_items.push(ListItem::new("[No lists]"));
+            }
         }
         ui_state.list_items = list_items;
         ui_state.list_paths = list_paths;
-        ui_state.display_mode = DisplayMode::Lists;
         Ok(())
     }
 
-    async fn update_lists(&mut self) -> Result<(), failure::Error> {
-        let lists = self.api.get_lists().await?;
+    async fn fetch_lists(api: API, ui_state: std::sync::Arc<std::sync::Mutex<UiState>>) {
+        let lists = api.get_lists().await.unwrap();
+        let tx = ui_state.lock().unwrap().event_tx.clone();
         {
-            let mut ui_state = self.ui_state.lock().unwrap();
-            ui_state.list_state.select(Some(0));
-
+            let mut ui_state = ui_state.lock().unwrap();
             ui_state.lists = lists.into_iter().map(|l| ListDispState {
                 list: l,
                 opened: false,
                 tasks: None,
             }).collect();
+            ui_state.lists_loading = false;
+        }
+        tx.send(TuiEvent::StateChanged).await.map_err(|_|()).unwrap();
+
+        // Now fetch each list
+        let (filter, ids) = {
+            let ui_state = ui_state.lock().unwrap();
+            let mut ids = Vec::new();
+            for (i, list_state) in ui_state.lists.iter().enumerate() {
+                ids.push((i, list_state.list.id.clone()));
+            }
+
+            (ui_state.filter.clone(), ids)
+        };
+        for (idx, list_id) in ids {
+            let tasks = get_tasks(&api, &filter, &list_id).await.unwrap();
+            {
+                let mut ui_state = ui_state.lock().unwrap();
+                if ui_state.lists.len() > idx && ui_state.lists[idx].list.id == list_id {
+                    ui_state.lists[idx].tasks = Some(tasks);
+
+                } else {
+                    // We're out of step - return
+                    return;
+                }
+            }
+            tx.send(TuiEvent::StateChanged).await.map_err(|_|()).unwrap();
+        }
+        ui_state.lock().unwrap().lists_loading = false;
+    }
+
+    async fn update_lists(&mut self) -> Result<(), failure::Error> {
+        {
+            let mut ui_state = self.ui_state.lock().unwrap();
+            ui_state.display_mode = DisplayMode::Lists;
+            ui_state.lists_loading = true;
+            ui_state.list_state.select(Some(0));
+
             ui_state.list_pos = 0;
             ui_state.show_task = false;
+
         }
+        tokio::spawn(Tui::fetch_lists(self.api.clone(), std::sync::Arc::clone(&self.ui_state)));
         self.update_list_display().await
     }
 
@@ -421,10 +476,6 @@ impl Tui {
                                             if ti == 0 {
                                                 let new_opened = !ui_state.lists[li].opened;
                                                 ui_state.lists[li].opened = new_opened;
-                                                if new_opened {
-                                                    let ui_state = &mut *ui_state;
-                                                    get_tasks(&self.api, &ui_state.filter, &mut ui_state.lists[li]).await?;
-                                                }
                                             }
                                         }
                                         drop(ui_state);
@@ -455,7 +506,16 @@ impl Tui {
                     _ => StepResult::Cont,
                 }
             }
-            Some(TuiEvent::StateChanged) => StepResult::Cont,
+            Some(TuiEvent::StateChanged) => {
+                let display_mode = self.ui_state.lock().unwrap().display_mode;
+                match display_mode {
+                    DisplayMode::Tasks => {}
+                    DisplayMode::Lists => {
+                        self.update_list_display().await?;
+                    }
+                }
+                StepResult::Cont
+            }
         };
         Ok(result)
     }
@@ -471,10 +531,9 @@ impl Tui {
     }
 }
 
-async fn get_tasks(api: &rememberthemilk::API, filter: &str, list_state: &mut ListDispState) -> Result<(), failure::Error> {
-    let tasks = api.get_tasks_in_list(&list_state.list.id, filter).await?;
-    list_state.tasks = Some(tasks);
-    Ok(())
+async fn get_tasks(api: &rememberthemilk::API, filter: &str, id: &str) -> Result<RTMTasks, failure::Error> {
+    let tasks = api.get_tasks_in_list(id, filter).await?;
+    Ok(tasks)
 }
 
 impl Drop for Tui {
