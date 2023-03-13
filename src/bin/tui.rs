@@ -7,13 +7,22 @@ use tui::{
     Terminal, style::{Style, Color, Modifier}, text::{Spans, Span}, layout::Rect
 };
 use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event, EventStream}};
-use std::io;
+use std::{io, borrow::Cow};
 
 use crate::{get_rtm_api, get_default_filter, tail_end};
 
 enum DisplayMode {
     Tasks,
     Lists,
+}
+
+impl DisplayMode {
+    fn title(&self) -> Cow<'static, str> {
+        match self {
+            DisplayMode::Tasks => "RTM Tasks".into(),
+            DisplayMode::Lists => "RTM Lists".into(),
+        }
+    }
 }
 
 struct ListDispState {
@@ -203,7 +212,7 @@ impl Tui {
         self.terminal.draw(move |f| {
             let size = f.size();
             let block = Block::default()
-                .title("RTM list")
+                .title(ui_state.display_mode.title().into_owned())
                 .borders(Borders::TOP | Borders::BOTTOM)
                 .border_style(Style::default().fg(Color::White))
                 .border_type(BorderType::Rounded)
