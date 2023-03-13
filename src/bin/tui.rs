@@ -201,10 +201,26 @@ impl Tui {
         let mut ui_state = self.ui_state.lock().unwrap();
         for (i, list) in ui_state.lists.iter().enumerate() {
             if let Some(tasks) = list.tasks.as_ref() {
-                list_items.push(ListItem::new(
-                        format!("{} [{}]", &list.list.name, tasks.list.len())));
+                let len: usize =
+                   tasks
+                    .list
+                    .iter()
+                    .map(|l| l.taskseries.as_ref().map(|ts| ts.len()).unwrap_or(0))
+                    .sum();
+                if len > 0 {
+                    list_items.push(
+                        ListItem::new(
+                                format!("{} [{}]", &list.list.name, len)
+                            ).style(Style::default().fg(Color::LightYellow)));
+                } else {
+                    list_items.push(
+                        ListItem::new(
+                            format!("{}", &list.list.name)
+                            ).style(Style::default().fg(Color::DarkGray)));
+                }
             } else {
-                list_items.push(ListItem::new(list.list.name.clone()));
+                list_items.push(ListItem::new(list.list.name.clone())
+                            .style(Style::default().fg(Color::White)));
             }
             list_paths.push((i, 0));
             if list.opened {
