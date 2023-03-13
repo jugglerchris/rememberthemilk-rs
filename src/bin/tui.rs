@@ -1,12 +1,13 @@
 use chrono::{DateTime, Utc};
 use rememberthemilk::{Perms, API, RTMTasks, RTMList, TaskSeries};
+use tokio::sync::mpsc::Receiver;
 use tokio_stream::StreamExt;
 use tui::{
     backend::CrosstermBackend,
     widgets::{List, Block, Borders, BorderType, ListItem, ListState, Paragraph, Clear},
     Terminal, style::{Style, Color, Modifier}, text::{Spans, Span}, layout::Rect
 };
-use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event, EventStream}};
+use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
 use std::{io, borrow::Cow};
 
 use crate::{get_rtm_api, get_default_filter, tail_end};
@@ -97,11 +98,16 @@ impl<'t> Iterator for RtmTaskListIterator<'t> {
     }
 }
 
+enum TuiEvent {
+    Input(Result<crossterm::event::Event, std::io::Error>),
+    StateChanged,
+}
+
 struct Tui {
     api: API,
-    events: EventStream,
+    event_rx: Receiver<TuiEvent>,
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
-    ui_state: UiState,
+    ui_state: std::sync::Arc<std::sync::Mutex<UiState>>,
 }
 enum StepResult {
     Cont,
@@ -114,7 +120,15 @@ impl Tui {
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
 
-        let events = crossterm::event::EventStream::new();
+        let mut events = crossterm::event::EventStream::new();
+        let (event_tx, event_rx) = tokio::sync::mpsc::channel(10);
+
+        tokio::spawn(async move {
+            event_tx.send(TuiEvent::StateChanged).await.map_err(|_|()).unwrap();
+            while let Some(evt) = events.next().await {
+                event_tx.send(TuiEvent::Input(evt)).await.map_err(|_|()).unwrap();
+            }
+        });
 
         let api = get_rtm_api(Perms::Read).await?;
         let list_state: ListState = Default::default();
@@ -139,18 +153,18 @@ impl Tui {
 
         let mut tui = Tui {
             api,
-            events,
+            event_rx,
             terminal,
-            ui_state,
+            ui_state: std::sync::Arc::new(std::sync::Mutex::new(ui_state)),
         };
         tui.update_tasks().await?;
 
         Ok(tui)
     }
     async fn update_tasks(&mut self) -> Result<(), failure::Error> {
-        let tasks = self.api.get_tasks_filtered(&self.ui_state.filter).await?;
+        let filter = self.ui_state.lock().unwrap().filter.clone();
+        let tasks = self.api.get_tasks_filtered(&filter).await?;
         let list_pos = 0;
-        self.ui_state.list_state.select(Some(list_pos));
 
         let mut list_items = vec![];
         let mut list_paths = vec![];
@@ -161,18 +175,23 @@ impl Tui {
         if list_items.is_empty() {
             list_items.push(ListItem::new("[No tasks in current list]"));
         }
-        self.ui_state.tasks = tasks;
-        self.ui_state.list_items = list_items;
-        self.ui_state.list_paths = list_paths;
-        self.ui_state.list_pos = list_pos;
-        self.ui_state.display_mode = DisplayMode::Tasks;
+        {
+            let mut ui_state = self.ui_state.lock().unwrap();
+            ui_state.list_state.select(Some(list_pos));
+            ui_state.tasks = tasks;
+            ui_state.list_items = list_items;
+            ui_state.list_paths = list_paths;
+            ui_state.list_pos = list_pos;
+            ui_state.display_mode = DisplayMode::Tasks;
+        }
         Ok(())
     }
 
     async fn update_list_display(&mut self) -> Result<(), failure::Error> {
         let mut list_items = vec![];
         let mut list_paths = vec![];
-        for (i, list) in self.ui_state.lists.iter().enumerate() {
+        let mut ui_state = self.ui_state.lock().unwrap();
+        for (i, list) in ui_state.lists.iter().enumerate() {
             list_items.push(ListItem::new(list.list.name.clone()));
             list_paths.push((i, 0));
             if list.opened {
@@ -187,28 +206,31 @@ impl Tui {
         if list_items.is_empty() {
             list_items.push(ListItem::new("[No lists]"));
         }
-        self.ui_state.list_items = list_items;
-        self.ui_state.list_paths = list_paths;
-        self.ui_state.display_mode = DisplayMode::Lists;
+        ui_state.list_items = list_items;
+        ui_state.list_paths = list_paths;
+        ui_state.display_mode = DisplayMode::Lists;
         Ok(())
     }
 
     async fn update_lists(&mut self) -> Result<(), failure::Error> {
         let lists = self.api.get_lists().await?;
-        self.ui_state.list_state.select(Some(0));
+        {
+            let mut ui_state = self.ui_state.lock().unwrap();
+            ui_state.list_state.select(Some(0));
 
-        self.ui_state.lists = lists.into_iter().map(|l| ListDispState {
-            list: l,
-            opened: false,
-            tasks: None,
-        }).collect();
-        self.ui_state.list_pos = 0;
-        self.ui_state.show_task = false;
+            ui_state.lists = lists.into_iter().map(|l| ListDispState {
+                list: l,
+                opened: false,
+                tasks: None,
+            }).collect();
+            ui_state.list_pos = 0;
+            ui_state.show_task = false;
+        }
         self.update_list_display().await
     }
 
     async fn draw(&mut self) -> Result<(), failure::Error> {
-        let ui_state = &mut self.ui_state;
+        let mut ui_state = self.ui_state.lock().unwrap();
         self.terminal.draw(move |f| {
             let size = f.size();
             let block = Block::default()
@@ -316,29 +338,32 @@ impl Tui {
     }
 
     async fn input(&mut self, prompt: &'static str) -> Result<String, failure::Error> {
-        self.ui_state.input_value = self.ui_state.filter.clone();
-        self.ui_state.input_prompt = prompt;
-        self.ui_state.show_input = true;
+        {
+            let mut ui_state = self.ui_state.lock().unwrap();
+            ui_state.input_value = ui_state.filter.clone();
+            ui_state.input_prompt = prompt;
+            ui_state.show_input = true;
+        }
         loop {
             self.draw().await?;
-            match self.events.next().await {
+            match self.event_rx.recv().await {
                 None => { return Ok("".into()); }
-                Some(ev) => match ev {
+                Some(TuiEvent::Input(ev)) => match ev {
                     Err(e) => { return Err(e.into()); }
                     Ok(ev) => match ev {
                         Event::Key(key) => {
                             match key.code {
                                 KeyCode::Char(c) => {
-                                    self.ui_state.input_value.push(c);
+                                    self.ui_state.lock().unwrap().input_value.push(c);
                                 }
                                 KeyCode::Enter => {
                                     break;
                                 }
                                 KeyCode::Backspace => {
-                                    let _ = self.ui_state.input_value.pop();
+                                    let _ = self.ui_state.lock().unwrap().input_value.pop();
                                 }
                                 KeyCode::Esc => {
-                                    self.ui_state.show_input = false;
+                                    self.ui_state.lock().unwrap().show_input = false;
                                     return Ok(String::new());
                                 }
                                 _ => (),
@@ -347,21 +372,23 @@ impl Tui {
                         _ => ()
                     }
                 }
+                Some(TuiEvent::StateChanged) => (),
             }
         }
-        self.ui_state.show_input = false;
+        let mut ui_state = self.ui_state.lock().unwrap();
+        ui_state.show_input = false;
 
         let mut result = String::new();
-        std::mem::swap(&mut result, &mut self.ui_state.input_value);
+        std::mem::swap(&mut result, &mut ui_state.input_value);
         Ok(result)
     }
 
     pub async fn step(&mut self) -> Result<StepResult, failure::Error> {
         self.draw().await?;
 
-        let result = match self.events.next().await {
+        let result = match self.event_rx.recv().await {
             None => { return Ok(StepResult::End); }
-            Some(ev) => match ev {
+            Some(TuiEvent::Input(ev)) => match ev {
                 Err(e) => { return Err(e.into()); }
                 Ok(ev) => match ev {
                     Event::Key(key) => {
@@ -372,7 +399,7 @@ impl Tui {
                             KeyCode::Char('g') => {
                                 let filter = self.input("Enter RTM filter:").await?;
                                 if !filter.is_empty() {
-                                    self.ui_state.filter = filter;
+                                    self.ui_state.lock().unwrap().filter = filter;
                                     self.update_tasks().await?;
                                 }
                                 StepResult::Cont
@@ -382,37 +409,44 @@ impl Tui {
                                 StepResult::Cont
                             }
                             KeyCode::Enter => {
-                                match self.ui_state.display_mode {
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                match ui_state.display_mode {
                                     DisplayMode::Tasks => {
-                                        self.ui_state.show_task = !self.ui_state.show_task;
+                                        ui_state.show_task = !ui_state.show_task;
                                     }
                                     DisplayMode::Lists => {
                                         // Expand/unexpand the list
-                                        if self.ui_state.list_items.len() > 0 {
-                                            let (li, ti) = self.ui_state.list_paths[self.ui_state.list_pos];
+                                        if ui_state.list_items.len() > 0 {
+                                            let (li, ti) = ui_state.list_paths[ui_state.list_pos];
                                             if ti == 0 {
-                                                let new_opened = !self.ui_state.lists[li].opened;
-                                                self.ui_state.lists[li].opened = new_opened;
+                                                let new_opened = !ui_state.lists[li].opened;
+                                                ui_state.lists[li].opened = new_opened;
                                                 if new_opened {
-                                                    get_tasks(&self.api, &self.ui_state.filter, &mut self.ui_state.lists[li]).await?;
+                                                    let ui_state = &mut *ui_state;
+                                                    get_tasks(&self.api, &ui_state.filter, &mut ui_state.lists[li]).await?;
                                                 }
                                             }
                                         }
+                                        drop(ui_state);
                                         self.update_list_display().await?;
                                     }
                                 }
                                 StepResult::Cont
                             }
                             KeyCode::Up | KeyCode::Char('k') => {
-                                self.ui_state.list_pos = self.ui_state.list_pos.saturating_sub(1);
-                                self.ui_state.list_state.select(Some(self.ui_state.list_pos));
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
+                                let list_pos = ui_state.list_pos;
+                                ui_state.list_state.select(Some(list_pos));
                                 StepResult::Cont
                             }
                             KeyCode::Down | KeyCode::Char('j')  => {
-                                if self.ui_state.list_pos+1 < self.ui_state.list_items.len() {
-                                    self.ui_state.list_pos += 1;
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                if ui_state.list_pos+1 < ui_state.list_items.len() {
+                                    ui_state.list_pos += 1;
                                 }
-                                self.ui_state.list_state.select(Some(self.ui_state.list_pos));
+                                let list_pos = ui_state.list_pos;
+                                ui_state.list_state.select(Some(list_pos));
                                 StepResult::Cont
                             }
                             _ => StepResult::Cont,
@@ -421,6 +455,7 @@ impl Tui {
                     _ => StepResult::Cont,
                 }
             }
+            Some(TuiEvent::StateChanged) => StepResult::Cont,
         };
         Ok(result)
     }
