@@ -867,7 +867,7 @@ impl API {
         parent: Option<&Task>,
         external_id: Option<&str>,
         smart: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<TaskSeries>, Error> {
         if let Some(ref tok) = self.token {
             let mut params = vec![
                 ("method", "rtm.tasks.add"),
@@ -895,7 +895,19 @@ impl API {
             log::trace!("Add task response: {}", response);
             let rsp = from_str::<RTMResponse<AddTaskResponse>>(&response)?.rsp;
             if let Stat::Ok = rsp.stat {
-                Ok(())
+                if let Some(list) = rsp.list {
+                    if let Some(mut series) = list.taskseries {
+                        if series.len() >= 1 {
+                            Ok(Some(series.pop().unwrap()))
+                        } else {
+                            Ok(None)
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
             } else {
                 bail!("Error adding task")
             }

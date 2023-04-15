@@ -325,8 +325,24 @@ async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
 
-    api.add_task(&timeline, &name, None, None, None, opt.smart).await?;
+    let added = api.add_task(&timeline, &name, None, None, None, opt.smart).await?;
+    if let Some(task) = added {
+        print_taskseries(&task);
+    } else {
+        println!("Successful result, but no task returned in response.")
+    }
     Ok(())
+}
+
+fn print_taskseries(task: &rememberthemilk::TaskSeries) {
+    println!("Added task id {}", task.id);
+    println!("Name: {}", task.name);
+    println!("Tags: {}", task.tags.join(", "));
+    for task in &task.task {
+        if task.completed.is_none() {
+            println!("  Due: {:?}", task.due);
+        }
+    }
 }
 
 #[cfg(feature = "tui")]
