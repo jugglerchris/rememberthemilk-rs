@@ -408,10 +408,10 @@ impl Tui {
         Ok(())
     }
 
-    async fn input(&mut self, prompt: &'static str) -> Result<String, failure::Error> {
+    async fn input(&mut self, prompt: &'static str, default: &str) -> Result<String, failure::Error> {
         {
             let mut ui_state = self.ui_state.lock().unwrap();
-            ui_state.input_value = ui_state.filter.clone();
+            ui_state.input_value = default.into();
             ui_state.input_prompt = prompt;
             ui_state.show_input = true;
         }
@@ -468,9 +468,23 @@ impl Tui {
                                 StepResult::End
                             }
                             KeyCode::Char('g') => {
-                                let filter = self.input("Enter RTM filter:").await?;
+                                let cur_filt = self.ui_state.lock().unwrap().filter.clone();
+                                let filter = self.input("Enter RTM filter:", &cur_filt).await?;
                                 if !filter.is_empty() {
                                     self.ui_state.lock().unwrap().filter = filter;
+                                    self.update_tasks().await?;
+                                }
+                                StepResult::Cont
+                            }
+                            KeyCode::Char('A') => {
+                                let task_desc = self.input("Enter new task:", "").await?;
+                                if !task_desc.is_empty() {
+                                    let timeline = self.api.get_timeline().await?;
+                                    let _added = self.api.add_task(
+                                        &timeline,
+                                        &task_desc,
+                                        None, None, None,
+                                        true).await?;
                                     self.update_tasks().await?;
                                 }
                                 StepResult::Cont
