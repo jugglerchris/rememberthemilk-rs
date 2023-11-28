@@ -2,10 +2,10 @@ use chrono::{DateTime, Utc};
 use rememberthemilk::{Perms, API, RTMTasks, RTMList, TaskSeries};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::StreamExt;
-use tui::{
+use ratatui::{
     backend::CrosstermBackend,
     widgets::{List, Block, Borders, BorderType, ListItem, ListState, Paragraph, Clear},
-    Terminal, style::{Style, Color, Modifier}, text::{Spans, Span}, layout::Rect
+    Terminal, style::{Style, Color, Modifier}, text::{Line, Span}, layout::Rect
 };
 use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
 use std::{io, borrow::Cow};
@@ -330,7 +330,7 @@ impl Tui {
                 let (li, _) = ui_state.list_paths[ui_state.list_pos];
                 let series = RtmTaskListIterator::new(&ui_state.tasks).nth(li).unwrap();
                 let mut text = vec![
-                    Spans::from(vec![
+                    Line::from(vec![
                         Span::raw(series.name.clone()),
                     ])];
                 if !series.tags.is_empty() {
@@ -343,7 +343,7 @@ impl Tui {
                         spans.push(Span::styled(tag.clone(), tag_style));
                         spans.push(" ".into());
                     }
-                    text.push( Spans::from(spans));
+                    text.push( Line::from(spans));
                 }
                 if let Some(repeat) = &series.repeat {
                     let style = Style::default()
@@ -358,10 +358,10 @@ impl Tui {
                     }
                     spans.push(
                         Span::styled(repeat.rule.clone(), style));
-                    text.push( Spans::from(spans));
+                    text.push( Line::from(spans));
                 }
                 for task in &series.task {
-                    fn add_date_field(text: &mut Vec<Spans>, heading: &'static str,
+                    fn add_date_field(text: &mut Vec<Line>, heading: &'static str,
                                       value: &Option<DateTime<Utc>>,
                                       color: Color) {
                         if let Some(date) = value {
@@ -372,7 +372,7 @@ impl Tui {
                                 Span::raw(heading)];
                             spans.push(
                                 Span::styled(format!("{}", date), style));
-                            text.push( Spans::from(spans));
+                            text.push( Line::from(spans));
                         }
                     }
                     add_date_field(&mut text, "Due: ", &task.due, Color::Yellow);
@@ -401,7 +401,7 @@ impl Tui {
                     Span::raw("_"),
                 ];
                 f.render_widget(
-                    Paragraph::new(vec![Spans::from(text)])
+                    Paragraph::new(vec![Line::from(text)])
                         .block(block), area);
             }
         })?;
