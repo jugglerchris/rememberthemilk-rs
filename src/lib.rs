@@ -303,6 +303,14 @@ pub struct TaskSeries {
     pub created: DateTime<Utc>,
     /// The last modification time.
     pub modified: DateTime<Utc>,
+    /// The task source (e.g. android, js)
+    pub source: String,
+    /// An associated URL, if any.
+    pub url: String,
+    /// The parent task id (or blank)
+    pub parent_task_id: String,
+    /// Notes
+    pub notes: Vec<String>,
     /// The tasks within this series, if any.
     pub task: Vec<Task>,
     #[serde(deserialize_with = "deser_tags")]
