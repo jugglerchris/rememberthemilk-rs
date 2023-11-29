@@ -373,15 +373,15 @@ impl Tui {
             }
             f.render_stateful_widget(tree, list_size, &mut ui_state.tree_state);
 
-            if ui_state.show_task && !ui_state.list_paths.is_empty() {
+            if ui_state.show_task {
                 let block = Block::default()
                     .title("Task")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::White))
                     .border_type(BorderType::Rounded)
                     .style(Style::default().bg(Color::Black));
-                let (li, _) = ui_state.list_paths[ui_state.list_pos];
-                let series = RtmTaskListIterator::new(&ui_state.tasks).nth(li).unwrap();
+                let tree_pos = ui_state.tree_state.selected().pop().unwrap();
+                let series = RtmTaskListIterator::new(&ui_state.tasks).nth(tree_pos).unwrap();
                 let mut text = vec![
                     Line::from(vec![
                         Span::raw(series.name.clone()),
