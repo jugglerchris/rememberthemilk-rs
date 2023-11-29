@@ -26,6 +26,7 @@ termcolor = "1.1"
 env_logger = "0.10.0"
 log = "0.4.17"
 ratatui = { version = "0.24", optional = true }
+tui-tree-widget = { version = "0.15", optional = true }
 crossterm = { version = "0.25", optional = true, features = ["event-stream"] }
 tokio-stream = "0.1.12"
 unicode-width = "0.1.10"
@@ -35,7 +36,7 @@ name = "rtm"
 
 [features]
 default = ["tui"]
-tui = ["dep:ratatui", "dep:crossterm"]
+tui = ["dep:ratatui", "dep:tui-tree-widget", "dep:crossterm"]
 
 [dev-dependencies]
 mockito = "0.25"

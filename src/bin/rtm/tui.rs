@@ -4,8 +4,11 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::StreamExt;
 use ratatui::{
     backend::CrosstermBackend,
-    widgets::{List, Block, Borders, BorderType, ListItem, ListState, Paragraph, Clear},
+    widgets::{Block, Borders, BorderType, Paragraph, Clear},
     Terminal, style::{Style, Color, Modifier}, text::{Line, Span}, layout::Rect
+};
+use tui_tree_widget::{
+    Tree, TreeItem, TreeState
 };
 use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
 use std::{io, borrow::Cow};
@@ -36,9 +39,9 @@ struct ListDispState {
 struct UiState {
     display_mode: DisplayMode,
     filter: String,
-    list_state: ListState,
     list_pos: usize,
-    list_items: Vec<ListItem<'static>>,
+    tree_items: Vec<TreeItem<'static, usize>>,
+    tree_state: TreeState<usize>,
     list_paths: Vec<(usize, usize)>,
     tasks: RTMTasks,
     lists: Vec<ListDispState>,
@@ -137,7 +140,7 @@ impl Tui {
         }
 
         let api = get_rtm_api(Perms::Read).await?;
-        let list_state: ListState = Default::default();
+        let tree_state: TreeState<usize> = Default::default();
         let filter = get_default_filter()?;
         let show_task = false;
         let display_mode = DisplayMode::Tasks;
@@ -145,9 +148,9 @@ impl Tui {
         let ui_state = UiState {
             display_mode,
             filter,
-            list_state,
+            tree_state,
             list_pos: 0,
-            list_items: vec![],
+            tree_items: vec![],
             list_paths: vec![],
             tasks: Default::default(),
             lists: Default::default(),
@@ -174,20 +177,20 @@ impl Tui {
         let tasks = self.api.get_tasks_filtered(&filter).await?;
         let list_pos = 0;
 
-        let mut list_items = vec![];
+        let mut tree_items = vec![];
         let mut list_paths = vec![];
         for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
             list_paths.push((ti, 0));
-            list_items.push(ListItem::new(ts.name.clone()));
+            tree_items.push(TreeItem::new_leaf(ti, ts.name.clone()));
         }
-        if list_items.is_empty() {
-            list_items.push(ListItem::new("[No tasks in current list]"));
+        if tree_items.is_empty() {
+            tree_items.push(TreeItem::new_leaf(0, "[No tasks in current list]"));
         }
         {
             let mut ui_state = self.ui_state.lock().unwrap();
-            ui_state.list_state.select(Some(list_pos));
+            ui_state.tree_state.select_first(&tree_items);
             ui_state.tasks = tasks;
-            ui_state.list_items = list_items;
+            ui_state.tree_items = tree_items;
             ui_state.list_paths = list_paths;
             ui_state.list_pos = list_pos;
             ui_state.display_mode = DisplayMode::Tasks;
@@ -196,7 +199,7 @@ impl Tui {
     }
 
     async fn update_list_display(&mut self) -> Result<(), failure::Error> {
-        let mut list_items = vec![];
+        let mut tree_items = vec![];
         let mut list_paths = vec![];
         let mut ui_state = self.ui_state.lock().unwrap();
         for (i, list) in ui_state.lists.iter().enumerate() {
@@ -208,18 +211,20 @@ impl Tui {
                     .map(|l| l.taskseries.as_ref().map(|ts| ts.len()).unwrap_or(0))
                     .sum();
                 if len > 0 {
-                    list_items.push(
-                        ListItem::new(
+                    tree_items.push(
+                        TreeItem::new_leaf(
+                                i,
                                 format!("{} [{}]", &list.list.name, len)
                             ).style(Style::default().fg(Color::LightYellow)));
                 } else {
-                    list_items.push(
-                        ListItem::new(
+                    tree_items.push(
+                        TreeItem::new_leaf(
+                            i,
                             format!("{}", &list.list.name)
                             ).style(Style::default().fg(Color::DarkGray)));
                 }
             } else {
-                list_items.push(ListItem::new(list.list.name.clone())
+                tree_items.push(TreeItem::new_leaf(i, list.list.name.clone())
                             .style(Style::default().fg(Color::White)));
             }
             list_paths.push((i, 0));
@@ -227,19 +232,19 @@ impl Tui {
                 if let Some(tasks) = list.tasks.as_ref() {
                     for (ti, task) in RtmTaskListIterator::new(tasks).enumerate() {
                         list_paths.push((i, ti+1));
-                        list_items.push(ListItem::new(format!("  {}", task.name)));
+                        tree_items.push(TreeItem::new_leaf(ti, format!("  {}", task.name)));
                     }
                 }
             }
         }
-        if list_items.is_empty() {
+        if tree_items.is_empty() {
             if ui_state.lists_loading {
-                list_items.push(ListItem::new("Loading..."));
+                tree_items.push(TreeItem::new_leaf(0, "Loading..."));
             } else {
-                list_items.push(ListItem::new("[No lists]"));
+                tree_items.push(TreeItem::new_leaf(0, "[No lists]"));
             }
         }
-        ui_state.list_items = list_items;
+        ui_state.tree_items = tree_items;
         ui_state.list_paths = list_paths;
         Ok(())
     }
@@ -288,9 +293,10 @@ impl Tui {
     async fn update_lists(&mut self) -> Result<(), failure::Error> {
         {
             let mut ui_state = self.ui_state.lock().unwrap();
+            let ui_state = &mut *ui_state;
             ui_state.display_mode = DisplayMode::Lists;
             ui_state.lists_loading = true;
-            ui_state.list_state.select(Some(0));
+            ui_state.tree_state.select_first(&ui_state.tree_items[..]);
 
             ui_state.list_pos = 0;
             ui_state.show_task = false;
@@ -310,15 +316,16 @@ impl Tui {
                 .border_style(Style::default().fg(Color::White))
                 .border_type(BorderType::Rounded)
                 .style(Style::default().bg(Color::Black));
-            let list = List::new(&ui_state.list_items[..])
-                .block(block)
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
-                .highlight_symbol("*");
+            let tree = Tree::new(ui_state.tree_items.clone())
+                            .unwrap()
+                            .block(block)
+                            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                            .highlight_symbol("*");
             let mut list_size = size;
             if ui_state.show_task {
                 list_size.height = list_size.height / 2;
             }
-            f.render_stateful_widget(list, list_size, &mut ui_state.list_state);
+            f.render_stateful_widget(tree, list_size, &mut ui_state.tree_state);
 
             if ui_state.show_task && !ui_state.list_paths.is_empty() {
                 let block = Block::default()
@@ -501,7 +508,7 @@ impl Tui {
                                     }
                                     DisplayMode::Lists => {
                                         // Expand/unexpand the list
-                                        if ui_state.list_items.len() > 0 {
+                                        if ui_state.tree_items.len() > 0 {
                                             let (li, ti) = ui_state.list_paths[ui_state.list_pos];
                                             if ti == 0 {
                                                 let new_opened = !ui_state.lists[li].opened;
@@ -516,18 +523,18 @@ impl Tui {
                             }
                             KeyCode::Up | KeyCode::Char('k') => {
                                 let mut ui_state = self.ui_state.lock().unwrap();
+                                let ui_state = &mut *ui_state;
                                 ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
-                                let list_pos = ui_state.list_pos;
-                                ui_state.list_state.select(Some(list_pos));
+                                ui_state.tree_state.key_up(&ui_state.tree_items[..]);
                                 StepResult::Cont
                             }
                             KeyCode::Down | KeyCode::Char('j')  => {
                                 let mut ui_state = self.ui_state.lock().unwrap();
-                                if ui_state.list_pos+1 < ui_state.list_items.len() {
+                                let ui_state = &mut *ui_state;
+                                if ui_state.list_pos+1 < ui_state.tree_items.len() {
                                     ui_state.list_pos += 1;
                                 }
-                                let list_pos = ui_state.list_pos;
-                                ui_state.list_state.select(Some(list_pos));
+                                ui_state.tree_state.key_down(&ui_state.tree_items[..]);
                                 StepResult::Cont
                             }
                             _ => StepResult::Cont,
