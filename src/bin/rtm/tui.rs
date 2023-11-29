@@ -12,6 +12,7 @@ use tui_tree_widget::{
 };
 use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
 use std::{io, borrow::Cow};
+use std::collections::HashMap;
 
 use crate::{get_rtm_api, get_default_filter, tail_end};
 
@@ -177,11 +178,57 @@ impl Tui {
         let tasks = self.api.get_tasks_filtered(&filter).await?;
         let list_pos = 0;
 
-        let mut tree_items = vec![];
-        let mut list_paths = vec![];
+        let flat_tasks: Vec<_> = RtmTaskListIterator::new(&tasks).cloned().collect();
+
+        // Map id to (is_root, TreeItem)
+        let mut task_map = HashMap::new();
+        let mut children_map = HashMap::new();
+        // Map by id
         for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
-            list_paths.push((ti, 0));
-            tree_items.push(TreeItem::new_leaf(ti, ts.name.clone()));
+            let id = &ts.task[0].id;
+            task_map.insert(id, (true, TreeItem::new_leaf(ti, ts.name.clone())));
+            children_map.insert(id, Vec::new());
+        }
+        // Record children
+        for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
+            let id = &ts.task[0].id;
+            if !ts.parent_task_id.is_empty() && task_map.contains_key(&ts.parent_task_id) {
+                children_map
+                    .get_mut(&ts.parent_task_id)
+                    .unwrap()
+                    .push(ti);
+                // Mark as not root
+                task_map
+                    .get_mut(id)
+                    .unwrap()
+                    .0 = false;
+            }
+        }
+
+        fn add_item(task_map: &mut HashMap<&String, (bool, TreeItem<'static, usize>)>, children_map: &mut HashMap<&String, Vec<usize>>, tasks: &Vec<TaskSeries>, list: &mut Vec<TreeItem<'static, usize>>, ti: usize, mut item: TreeItem<'static, usize>) {
+            let id = &tasks[ti].task[0].id;
+            let children = children_map.remove(id).unwrap();
+            if !children.is_empty() {
+                let mut child_items = Vec::new();
+                for cti in children {
+                    let cid = &tasks[cti].task[0].id;
+                    let (_, citem) = task_map.remove(cid).unwrap();
+                    add_item(task_map, children_map, tasks, &mut child_items, cti, citem);
+                }
+                for child in child_items {
+                    item.add_child(child).unwrap();
+                }
+            }
+            list.push(item);
+        }
+        let mut tree_items = Vec::new();
+        for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
+            let id = &ts.task[0].id;
+            let (is_root, _) = task_map.get(id).unwrap();
+            if *is_root {
+                let (_, item) = task_map.remove(id).unwrap();
+                add_item(&mut task_map, &mut children_map, &flat_tasks, &mut tree_items, ti, item);
+            }
         }
         if tree_items.is_empty() {
             tree_items.push(TreeItem::new_leaf(0, "[No tasks in current list]"));
@@ -191,7 +238,6 @@ impl Tui {
             ui_state.tree_state.select_first(&tree_items);
             ui_state.tasks = tasks;
             ui_state.tree_items = tree_items;
-            ui_state.list_paths = list_paths;
             ui_state.list_pos = list_pos;
             ui_state.display_mode = DisplayMode::Tasks;
         }
@@ -535,6 +581,12 @@ impl Tui {
                                     ui_state.list_pos += 1;
                                 }
                                 ui_state.tree_state.key_down(&ui_state.tree_items[..]);
+                                StepResult::Cont
+                            }
+                            KeyCode::Char(' ') => {
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                let ui_state = &mut *ui_state;
+                                ui_state.tree_state.toggle_selected();
                                 StepResult::Cont
                             }
                             _ => StepResult::Cont,

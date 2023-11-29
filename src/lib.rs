@@ -275,7 +275,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 /// A recurrence rule for a repeating task.
 pub struct RRule {
     /// If true, the recurrence rule is an "every" rule, which means it
@@ -289,7 +289,7 @@ pub struct RRule {
     pub rule: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 /// A rememberthemilk Task Series.  This corresponds to a single to-do item,
 /// and has the fields such as name and tags.  It also may contain some
 /// [Task]s, each of which is an instance of a possibly recurring or
@@ -321,7 +321,7 @@ pub struct TaskSeries {
     pub repeat: Option<RRule>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 /// A rememberthemilk Task.  In rememberthemilk a task is
 /// a specific instance of a possibly repeating item.  For
 /// example, a weekly task to take out the bins is
