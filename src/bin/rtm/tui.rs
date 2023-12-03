@@ -33,7 +33,6 @@ impl DisplayMode {
 
 struct ListDispState {
     list: RTMList,
-    opened: bool,
     tasks: Option<RTMTasks>,
 }
 
@@ -257,11 +256,18 @@ impl Tui {
                     .map(|l| l.taskseries.as_ref().map(|ts| ts.len()).unwrap_or(0))
                     .sum();
                 if len > 0 {
-                    tree_items.push(
+                    let mut item =
                         TreeItem::new_leaf(
                                 i,
                                 format!("{} [{}]", &list.list.name, len)
-                            ).style(Style::default().fg(Color::LightYellow)));
+                            ).style(Style::default().fg(Color::LightYellow));
+                    if let Some(tasks) = list.tasks.as_ref() {
+                        for (ti, task) in RtmTaskListIterator::new(tasks).enumerate()
+                        {
+                            item.add_child(TreeItem::new_leaf(ti, format!("  {}", task.name))).unwrap();
+                        }
+                    }
+                    tree_items.push(item);
                 } else {
                     tree_items.push(
                         TreeItem::new_leaf(
@@ -274,14 +280,6 @@ impl Tui {
                             .style(Style::default().fg(Color::White)));
             }
             list_paths.push((i, 0));
-            if list.opened {
-                if let Some(tasks) = list.tasks.as_ref() {
-                    for (ti, task) in RtmTaskListIterator::new(tasks).enumerate() {
-                        list_paths.push((i, ti+1));
-                        tree_items.push(TreeItem::new_leaf(ti, format!("  {}", task.name)));
-                    }
-                }
-            }
         }
         if tree_items.is_empty() {
             if ui_state.lists_loading {
@@ -302,7 +300,6 @@ impl Tui {
             let mut ui_state = ui_state.lock().unwrap();
             ui_state.lists = lists.into_iter().map(|l| ListDispState {
                 list: l,
-                opened: false,
                 tasks: None,
             }).collect();
             ui_state.lists_loading = false;
@@ -380,87 +377,107 @@ impl Tui {
                     .border_style(Style::default().fg(Color::White))
                     .border_type(BorderType::Rounded)
                     .style(Style::default().bg(Color::Black));
-                let tree_pos = ui_state.tree_state.selected().pop().unwrap();
-                let series = RtmTaskListIterator::new(&ui_state.tasks).nth(tree_pos).unwrap();
-                let mut text = vec![
-                    Line::from(vec![
-                        Span::raw(series.name.clone()),
-                    ])];
-                if !series.tags.is_empty() {
-                    let mut spans = vec![
-                        Span::raw("Tags: ")];
-                    let tag_style = Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD);
-                    for tag in &series.tags {
-                        spans.push(Span::styled(tag.clone(), tag_style));
-                        spans.push(" ".into());
+                let tree_pos = ui_state.tree_state.selected();
+                let series = match ui_state.display_mode {
+                    DisplayMode::Tasks => {
+                        Some(RtmTaskListIterator::new(&ui_state.tasks).nth(*tree_pos.last().unwrap()).unwrap())
                     }
-                    text.push( Line::from(spans));
-                }
-                if let Some(repeat) = &series.repeat {
-                    let style = Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD);
-                    let mut spans = vec![
-                        Span::raw("Repeat: ")];
-                    if repeat.every {
-                        spans.push(Span::raw("every "));
-                    } else {
-                        spans.push(Span::raw("after "));
+                    DisplayMode::Lists => {
+                        if tree_pos.len() == 2 {
+                            Some(RtmTaskListIterator::new(
+                                    ui_state.lists[tree_pos[0]]
+                                    .tasks
+                                    .as_ref()
+                                    .unwrap())
+                                .nth(tree_pos[1])
+                                .unwrap())
+                        } else {
+                            None
+                        }
                     }
-                    spans.push(
-                        Span::styled(repeat.rule.clone(), style));
-                    text.push( Line::from(spans));
-                }
-                for task in &series.task {
-                    fn add_date_field(text: &mut Vec<Line>, heading: &'static str,
-                                      value: &Option<DateTime<Utc>>,
-                                      color: Color) {
-                        if let Some(date) = value {
+                };
+
+                if let Some(series) = series {
+                    let mut text = vec![
+                        Line::from(vec![
+                                   Span::raw(series.name.clone()),
+                        ])];
+                    if !series.tags.is_empty() {
+                        let mut spans = vec![
+                            Span::raw("Tags: ")];
+                        let tag_style = Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD);
+                        for tag in &series.tags {
+                            spans.push(Span::styled(tag.clone(), tag_style));
+                            spans.push(" ".into());
+                        }
+                        text.push( Line::from(spans));
+                    }
+                    if let Some(repeat) = &series.repeat {
+                        let style = Style::default()
+                            .fg(Color::Blue)
+                            .add_modifier(Modifier::BOLD);
+                        let mut spans = vec![
+                            Span::raw("Repeat: ")];
+                        if repeat.every {
+                            spans.push(Span::raw("every "));
+                        } else {
+                            spans.push(Span::raw("after "));
+                        }
+                        spans.push(
+                            Span::styled(repeat.rule.clone(), style));
+                        text.push( Line::from(spans));
+                    }
+                    for task in &series.task {
+                        fn add_date_field(text: &mut Vec<Line>, heading: &'static str,
+                                          value: &Option<DateTime<Utc>>,
+                                          color: Color) {
+                            if let Some(date) = value {
+                                let style = Style::default()
+                                    .fg(color)
+                                    .add_modifier(Modifier::BOLD);
+                                let mut spans = vec![
+                                    Span::raw(heading)];
+                                spans.push(
+                                    Span::styled(format!("{}", date.format("%c")), style));
+                                text.push(Line::from(spans));
+                            }
+                        }
+                        add_date_field(&mut text, "Due: ", &task.due, Color::Yellow);
+                        add_date_field(&mut text, "Completed: ", &task.completed, Color::Magenta);
+                        add_date_field(&mut text, "Deleted: ", &task.deleted, Color::Red);
+                    }
+                    fn add_string_field(text: &mut Vec<Line>, heading: &'static str,
+                                        value: &str,
+                                        color: Color) {
+                        if !value.is_empty() {
                             let style = Style::default()
                                 .fg(color)
                                 .add_modifier(Modifier::BOLD);
                             let mut spans = vec![
                                 Span::raw(heading)];
                             spans.push(
-                                Span::styled(format!("{}", date.format("%c")), style));
+                                Span::styled(value.to_owned(), style));
                             text.push(Line::from(spans));
                         }
                     }
-                    add_date_field(&mut text, "Due: ", &task.due, Color::Yellow);
-                    add_date_field(&mut text, "Completed: ", &task.completed, Color::Magenta);
-                    add_date_field(&mut text, "Deleted: ", &task.deleted, Color::Red);
-                }
-                fn add_string_field(text: &mut Vec<Line>, heading: &'static str,
-                                  value: &str,
-                                  color: Color) {
-                    if !value.is_empty() {
-                        let style = Style::default()
-                            .fg(color)
-                            .add_modifier(Modifier::BOLD);
-                        let mut spans = vec![
-                            Span::raw(heading)];
-                        spans.push(
-                            Span::styled(value.to_owned(), style));
-                        text.push(Line::from(spans));
+                    add_string_field(&mut text, "URL: ", &series.url, Color::Yellow);
+                    add_string_field(&mut text, "Source: ", &series.source, Color::Yellow);
+                    if !series.notes.is_empty() {
+                        text.push(Line::from(vec![Span::raw("Notes:")]));
+                        for note in &series.notes {
+                            add_string_field(&mut text, "  ", note, Color::White);
+                        }
                     }
-                }
-                add_string_field(&mut text, "URL: ", &series.url, Color::Yellow);
-                add_string_field(&mut text, "Source: ", &series.source, Color::Yellow);
-                if !series.notes.is_empty() {
-                    text.push(Line::from(vec![Span::raw("Notes:")]));
-                    for note in &series.notes {
-                        add_string_field(&mut text, "  ", note, Color::White);
-                    }
-                }
 
-                let par = Paragraph::new(text)
-                    .block(block);
-                let area = Rect::new(
-                    0, list_size.height,
-                    size.width, size.height - list_size.height);
-                f.render_widget(par, area);
+                    let par = Paragraph::new(text)
+                        .block(block);
+                    let area = Rect::new(
+                        0, list_size.height,
+                        size.width, size.height - list_size.height);
+                    f.render_widget(par, area);
+                }
             }
             if ui_state.show_input {
                 let block = Block::default()
@@ -576,16 +593,7 @@ impl Tui {
                                         ui_state.show_task = !ui_state.show_task;
                                     }
                                     DisplayMode::Lists => {
-                                        // Expand/unexpand the list
-                                        if ui_state.tree_items.len() > 0 {
-                                            let (li, ti) = ui_state.list_paths[ui_state.list_pos];
-                                            if ti == 0 {
-                                                let new_opened = !ui_state.lists[li].opened;
-                                                ui_state.lists[li].opened = new_opened;
-                                            }
-                                        }
-                                        drop(ui_state);
-                                        self.update_list_display().await?;
+                                        ui_state.show_task = !ui_state.show_task;
                                     }
                                 }
                                 StepResult::Cont
