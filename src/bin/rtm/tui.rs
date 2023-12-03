@@ -424,14 +424,37 @@ impl Tui {
                             let mut spans = vec![
                                 Span::raw(heading)];
                             spans.push(
-                                Span::styled(format!("{}", date), style));
-                            text.push( Line::from(spans));
+                                Span::styled(format!("{}", date.format("%c")), style));
+                            text.push(Line::from(spans));
                         }
                     }
                     add_date_field(&mut text, "Due: ", &task.due, Color::Yellow);
                     add_date_field(&mut text, "Completed: ", &task.completed, Color::Magenta);
                     add_date_field(&mut text, "Deleted: ", &task.deleted, Color::Red);
                 }
+                fn add_string_field(text: &mut Vec<Line>, heading: &'static str,
+                                  value: &str,
+                                  color: Color) {
+                    if !value.is_empty() {
+                        let style = Style::default()
+                            .fg(color)
+                            .add_modifier(Modifier::BOLD);
+                        let mut spans = vec![
+                            Span::raw(heading)];
+                        spans.push(
+                            Span::styled(value.to_owned(), style));
+                        text.push(Line::from(spans));
+                    }
+                }
+                add_string_field(&mut text, "URL: ", &series.url, Color::Yellow);
+                add_string_field(&mut text, "Source: ", &series.source, Color::Yellow);
+                if !series.notes.is_empty() {
+                    text.push(Line::from(vec![Span::raw("Notes:")]));
+                    for note in &series.notes {
+                        add_string_field(&mut text, "  ", note, Color::White);
+                    }
+                }
+
                 let par = Paragraph::new(text)
                     .block(block);
                 let area = Rect::new(
