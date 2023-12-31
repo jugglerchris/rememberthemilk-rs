@@ -14,7 +14,7 @@
 //!
 //! ```no_run
 //! # #[tokio::main]
-//! # async fn main() -> Result<(), failure::Error> {
+//! # async fn main() -> Result<(), anyhow::Error> {
 //! // Create the API object
 //! # use rememberthemilk::{API, Perms};
 //! let mut rtm_api = API::new("my key".to_string(), "my secret".to_string());
@@ -39,7 +39,7 @@
 //!
 //! ```no_run
 //! # #[tokio::main]
-//! # async fn main() -> Result<(), failure::Error> {
+//! # async fn main() -> Result<(), anyhow::Error> {
 //! # use rememberthemilk::API;
 //! # let api: API = unimplemented!();
 //! let tasks = api.get_all_tasks().await?;
@@ -54,7 +54,7 @@
 //! # }
 //! ```
 use chrono::{DateTime, Duration, Utc};
-use failure::{bail, Error};
+use anyhow::{bail, Error};
 use serde::{de::Unexpected, Deserialize, Serialize};
 use serde_json::from_str;
 
@@ -576,7 +576,7 @@ impl API {
         &'a self,
         url: &'a str,
         keys: &'a [(&'a str, &'a str)],
-    ) -> Result<String, failure::Error> {
+    ) -> Result<String, anyhow::Error> {
         let auth_string = self.sign_keys(&keys);
         let client = reqwest::Client::new();
         log::trace!("make_authenticated_request: keys={:?}", keys);
