@@ -38,6 +38,7 @@ fn test_deser_taskseries() {
             "participants":[],
             "notes":[],
             "rrule":{"every":"1","$t":"FREQ=WEEKLY;INTERVAL=1;WKST=MO"},
+            "parent_task_id": "",
             "task":[
               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
             ]
@@ -61,6 +62,10 @@ fn test_deser_taskseries() {
             has_due_time: false,
         }],
         tags: vec!["computer".into()],
+        notes: Default::default(),
+        parent_task_id: "".into(),
+        source: "android".into(),
+        url: "".into(),
     };
     println!("{}", to_string(&expected).unwrap());
     let tasks = from_str::<TaskSeries>(json).unwrap();
@@ -111,6 +116,7 @@ fn test_deser_tag1() {
             "tags":{"tag":["computer"]},
             "participants":[],
             "notes":[],
+            "parent_task_id": "",
             "task":[
               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
             ]
@@ -138,6 +144,7 @@ fn test_deser_tasklist_response() {
                              "tags":{"tag":["computer"]},
                              "participants":[],
                              "notes":[],
+                             "parent_task_id": "",
                              "task":[
                                {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
                              ]}
@@ -165,6 +172,10 @@ fn test_deser_tasklist_response() {
                     }],
                     tags: vec!["computer".into()],
                     repeat: None,
+                    url: Default::default(),
+                    source: "android".into(),
+                    notes: Default::default(),
+                    parent_task_id: Default::default(),
                 }]),
             }],
         },
