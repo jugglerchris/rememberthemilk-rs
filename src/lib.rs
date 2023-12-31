@@ -114,6 +114,7 @@ impl RTMConfig {
 }
 
 /// The rememberthemilk API object.  All rememberthemilk operations are done using methods on here.
+#[derive(Clone)]
 pub struct API {
     api_key: String,
     api_secret: String,
@@ -274,7 +275,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 /// A recurrence rule for a repeating task.
 pub struct RRule {
     /// If true, the recurrence rule is an "every" rule, which means it
@@ -288,7 +289,7 @@ pub struct RRule {
     pub rule: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 /// A rememberthemilk Task Series.  This corresponds to a single to-do item,
 /// and has the fields such as name and tags.  It also may contain some
 /// [Task]s, each of which is an instance of a possibly recurring or
@@ -302,6 +303,14 @@ pub struct TaskSeries {
     pub created: DateTime<Utc>,
     /// The last modification time.
     pub modified: DateTime<Utc>,
+    /// The task source (e.g. android, js)
+    pub source: String,
+    /// An associated URL, if any.
+    pub url: String,
+    /// The parent task id (or blank)
+    pub parent_task_id: String,
+    /// Notes
+    pub notes: Vec<String>,
     /// The tasks within this series, if any.
     pub task: Vec<Task>,
     #[serde(deserialize_with = "deser_tags")]
@@ -312,7 +321,7 @@ pub struct TaskSeries {
     pub repeat: Option<RRule>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 /// A rememberthemilk Task.  In rememberthemilk a task is
 /// a specific instance of a possibly repeating item.  For
 /// example, a weekly task to take out the bins is
@@ -387,7 +396,7 @@ impl Task {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Default)]
 /// The response from fetching a list of tasks.
 pub struct RTMTasks {
     rev: String,
@@ -447,8 +456,8 @@ struct AddTagResponse {
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct AddTaskResponse {
     stat: Stat,
-    transaction: Transaction,
-    list: RTMLists,
+    transaction: Option<Transaction>,
+    list: Option<RTMLists>,
 }
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct RTMResponse<T> {
@@ -554,21 +563,23 @@ impl API {
         url
     }
 
-    fn make_authenticated_request<'a>(
+    async fn make_authenticated_request<'a>(
         &'a self,
         url: &'a str,
         keys: &'a [(&'a str, &'a str)],
-    ) -> impl std::future::Future<Output = Result<String, failure::Error>> + 'a {
-        // As an async fn, this doesn't compile due to (I think):
-        // https://github.com/rust-lang/rust/issues/63033
-        // One of the comments points to an explicit async block instead of using
-        // an async function as a workaround.
-        let url = self.make_authenticated_url(url, keys);
-        async move {
-            let body = reqwest::get(&url).await?.text().await?;
-            //println!("Body={}", body);
-            Ok(body)
-        }
+    ) -> Result<String, failure::Error> {
+        let auth_string = self.sign_keys(&keys);
+        let client = reqwest::Client::new();
+        log::trace!("make_authenticated_request: keys={:?}", keys);
+        let req = client.request(reqwest::Method::GET, url)
+                         .query(keys)
+                         .query(&[("api_sig", auth_string)])
+                         .build()?;
+        log::trace!("make_authenticated_request: url={}", req.url());
+        let body = client.execute(req)
+                .await?.text().await?;
+        log::trace!("make_authenticated_request: reply body={}", body);
+        Ok(body)
     }
 
     async fn get_frob(&self) -> Result<String, Error> {
@@ -633,7 +644,6 @@ impl API {
             )
             .await?;
 
-        //println!("{:?}", response);
         let auth_rep = from_str::<RTMResponse<AuthResponse>>(&response)
             .unwrap()
             .rsp;
@@ -704,7 +714,6 @@ impl API {
             let response = self
                 .make_authenticated_request(&get_rest_url(), &params)
                 .await?;
-            eprintln!("Got response:\n{}", response);
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
                 .unwrap()
@@ -715,6 +724,46 @@ impl API {
             bail!("Unable to fetch tasks")
         }
     }
+
+    /// Retrieve a filtered list of tasks within one list.
+    ///
+    /// The `list_id` is a lists's id.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn get_tasks_in_list(&self, list_id: &str, filter: &str) -> Result<RTMTasks, Error> {
+        if let Some(ref tok) = self.token {
+            let mut params = vec![
+                ("method", "rtm.tasks.getList"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("v", "2"),
+                ("list_id", list_id),
+            ];
+            if filter != "" {
+                params.push(("filter", filter));
+            }
+            let response = self
+                .make_authenticated_request(&get_rest_url(), &params)
+                .await?;
+            // TODO: handle failure
+            let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
+                .unwrap()
+                .rsp
+                .tasks;
+            Ok(tasklist)
+        } else {
+            bail!("Unable to fetch tasks")
+        }
+    }
+
     /// Request a list of rememberthemilk lists.
     ///
     /// Requires a valid user authentication token.
@@ -729,7 +778,6 @@ impl API {
             let response = self
                 .make_authenticated_request(&get_rest_url(), params)
                 .await?;
-            //println!("Got response:\n{}", response);
             // TODO: handle failure
             let lists = from_str::<RTMResponse<ListsResponse>>(&response)
                 .unwrap()
@@ -757,7 +805,6 @@ impl API {
             let response = self
                 .make_authenticated_request(&get_rest_url(), params)
                 .await?;
-            //println!("Got response:\n{}", response);
             // TODO: handle failure
             let tl = from_str::<RTMResponse<TimelineResponse>>(&response)
                 .unwrap()
@@ -827,7 +874,8 @@ impl API {
         list: Option<&RTMLists>,
         parent: Option<&Task>,
         external_id: Option<&str>,
-    ) -> Result<(), Error> {
+        smart: bool,
+    ) -> Result<Option<TaskSeries>, Error> {
         if let Some(ref tok) = self.token {
             let mut params = vec![
                 ("method", "rtm.tasks.add"),
@@ -846,13 +894,28 @@ impl API {
             if let Some(external_id) = external_id {
                 params.push(("external_id", &external_id));
             }
+            if smart {
+                params.push(("parse", "1"));
+            }
             let response = self
                 .make_authenticated_request(&get_rest_url(), &params)
                 .await?;
-            eprintln!("Add task response: {}", response);
+            log::trace!("Add task response: {}", response);
             let rsp = from_str::<RTMResponse<AddTaskResponse>>(&response)?.rsp;
             if let Stat::Ok = rsp.stat {
-                Ok(())
+                if let Some(list) = rsp.list {
+                    if let Some(mut series) = list.taskseries {
+                        if series.len() >= 1 {
+                            Ok(Some(series.pop().unwrap()))
+                        } else {
+                            Ok(None)
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
             } else {
                 bail!("Error adding task")
             }

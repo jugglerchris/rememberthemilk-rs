@@ -1,9 +1,58 @@
 #![deny(warnings)]
 use failure::bail;
 use rememberthemilk::{Perms, API};
+use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::io::Write;
 use structopt::StructOpt;
+
+const RTM_APP_NAME: &'static str = "rtm";
+const RTM_AUTH_ID: &'static str = "rtm_auth";
+const RTM_SETTINGS: &'static str = "config";
+
+#[derive(Serialize, Deserialize)]
+/// rtm tool user configuration.
+/// This is intended to be user-editable.
+pub struct Settings {
+    /// The default search filter for `rtm tasks` when not otherwise
+    /// specified.
+    pub filter: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            filter: "status:incomplete AND (dueBefore:today OR due:today)".into(),
+        }
+    }
+}
+
+fn tail_end(input: &str, width: usize) -> String {
+    let tot_width = unicode_width::UnicodeWidthStr::width(input);
+    if tot_width <= width {
+        // It fits, no problem.
+        return input.into();
+    }
+    // Otherwise, trim off the start, making space for a ...
+    let mut result = "…".to_string();
+    let elipsis_width = unicode_width::UnicodeWidthStr::width(result.as_str());
+    let space_needed = tot_width - (width - elipsis_width);
+
+    let mut removed_space = 0;
+    let mut ci = input.char_indices();
+
+    for (_, c) in &mut ci {
+        if let Some(w) = unicode_width::UnicodeWidthChar::width(c) {
+            removed_space += w;
+            if removed_space >= space_needed {
+                break;
+            }
+        }
+    }
+    let (start, _) = ci.next().unwrap();
+    result.push_str(&input[start..]);
+    result
+}
 
 #[derive(StructOpt, Debug)]
 enum Command {
@@ -29,6 +78,9 @@ enum Command {
         #[structopt(default_value = "read", long)]
         perm: Perms,
     },
+    #[cfg(feature = "tui")]
+    /// Run the TUI
+    Tui,
     /// Remove the saved user token
     Logout,
 }
@@ -58,6 +110,9 @@ struct Opt {
     #[structopt(short, long)]
     verbose: bool,
 
+    #[structopt(short, long)]
+    smart: bool,
+
     #[structopt(default_value = "auto", long)]
     colour: ColourOption,
 
@@ -78,7 +133,7 @@ impl Opt {
 }
 
 async fn get_rtm_api(perm: Perms) -> Result<API, failure::Error> {
-    let config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
+    let config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
         API::from_config(config)
     } else {
@@ -107,7 +162,7 @@ async fn auth_user(api: &mut API, perm: Perms) -> Result<(), failure::Error> {
     if !api.check_auth(&auth).await? {
         bail!("Error authenticating");
     }
-    confy::store("rtm_auth_example", api.to_config())?;
+    confy::store(RTM_APP_NAME, Some(RTM_AUTH_ID), api.to_config())?;
     Ok(())
 }
 
@@ -120,9 +175,9 @@ async fn auth_app(key: String, secret: String, perm: Perms) -> Result<(), failur
 }
 
 async fn logout() -> Result<(), failure::Error> {
-    let mut config: rememberthemilk::RTMConfig = confy::load("rtm_auth_example")?;
+    let mut config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     config.clear_user_data();
-    confy::store("rtm_auth_example", config)?;
+    confy::store(RTM_APP_NAME, Some(RTM_AUTH_ID), config)?;
     Ok(())
 }
 
@@ -141,11 +196,17 @@ fn format_human_time(secs: u64) -> String {
     }
 }
 
+fn get_default_filter() -> Result<String, failure::Error> {
+    let settings: Settings = confy::load(RTM_APP_NAME, RTM_SETTINGS)?;
+    Ok(settings.filter)
+}
+
 async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::Error> {
     let api = get_rtm_api(Perms::Read).await?;
+    let default_filter = get_default_filter()?;
     let filter = match filter {
         Some(ref s) => &s[..],
-        None => "status:incomplete AND (dueBefore:today OR due:today)",
+        None => &default_filter,
     };
     let all_tasks = api.get_tasks_filtered(filter).await?;
     let mut lists = HashMap::new();
@@ -163,7 +224,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
         if let Some(v) = list.taskseries {
             stdout.reset()?;
             for ts in v {
-                //eprintln!("{:?}", ts.task);
+                log::trace!("{:?}", ts.task);
                 for task in &ts.task {
                     let time_left = task.get_time_left();
                     use rememberthemilk::TimeLeft::*;
@@ -186,7 +247,9 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
                         }
                     };
                 }
-                writeln!(stdout, "  {}", ts.name)?;
+                write!(stdout, "  {}", ts.name)?;
+                stdout.set_color(ColorSpec::new().set_bg(Some(Color::Black)))?;
+                writeln!(stdout, "")?;
                 if opts.verbose {
                     writeln!(stdout, "   id: {}", ts.id)?;
                     writeln!(stdout, "   created: {}", ts.created)?;
@@ -209,7 +272,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
                             writeln!(stdout, "    due: {}", due)?;
                         } else {
                             // Remove the time parts, which aren't used.
-                            writeln!(stdout, "    due: {}", due.date())?;
+                            writeln!(stdout, "    due: {}", due.date_naive())?;
                         }
                     }
                     if let Some(added) = task.added {
@@ -258,23 +321,46 @@ async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error> {
     Ok(())
 }
 
-async fn add_task(name: String) -> Result<(), failure::Error> {
+async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
 
-    api.add_task(&timeline, &name, None, None, None).await?;
+    let added = api.add_task(&timeline, &name, None, None, None, opt.smart).await?;
+    if let Some(task) = added {
+        print_taskseries(&task);
+    } else {
+        println!("Successful result, but no task returned in response.")
+    }
     Ok(())
 }
 
+fn print_taskseries(task: &rememberthemilk::TaskSeries) {
+    println!("Added task id {}", task.id);
+    println!("Name: {}", task.name);
+    println!("Tags: {}", task.tags.join(", "));
+    for task in &task.task {
+        if task.completed.is_none() {
+            println!("  Due: {:?}", task.due);
+        }
+    }
+}
+
+#[cfg(feature = "tui")]
+mod tui;
+
 #[tokio::main]
 async fn main() -> Result<(), failure::Error> {
+    env_logger::init();
+
     let opt = Opt::from_args();
     match opt.cmd {
         Command::Tasks { ref filter } => list_tasks(&opt, filter).await?,
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
-        Command::AddTask { name } => add_task(name).await?,
+        Command::AddTask { ref name } => add_task(&opt, &name).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
+        #[cfg(feature = "tui")]
+        Command::Tui => tui::tui().await?,
         Command::Logout => logout().await?,
     }
 
