@@ -330,8 +330,9 @@ pub struct TaskSeries {
     pub source: String,
     /// An associated URL, if any.
     pub url: String,
+    #[serde(deserialize_with = "empty_string_as_none")]
     /// The parent task id (or blank)
-    pub parent_task_id: String,
+    pub parent_task_id: Option<String>,
     #[serde(deserialize_with = "deser_notes")]
     /// Notes
     pub notes: Vec<RTMNote>,

@@ -70,7 +70,11 @@ enum Command {
         filter: String,
     },
     /// Add a new task
-    AddTask { name: String },
+    AddTask {
+        name: String,
+        #[structopt(long)]
+        external_id: Option<String>,
+    },
     /// Authorise the app
     AuthApp {
         key: String,
@@ -321,11 +325,11 @@ async fn add_tag(filter: String, tag: String) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn add_task(opt: &Opt, name: &str) -> Result<(), anyhow::Error> {
+async fn add_task(opt: &Opt, name: &str, external_id: Option<&str>) -> Result<(), anyhow::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
 
-    let added = api.add_task(&timeline, &name, None, None, None, opt.smart).await?;
+    let added = api.add_task(&timeline, &name, None, None, external_id, opt.smart).await?;
     if let Some(task) = added {
         print_taskseries(&task);
     } else {
@@ -357,7 +361,7 @@ async fn main() -> Result<(), anyhow::Error> {
         Command::Tasks { ref filter } => list_tasks(&opt, filter).await?,
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
-        Command::AddTask { ref name } => add_task(&opt, &name).await?,
+        Command::AddTask { ref name, ref external_id } => add_task(&opt, &name, external_id.as_deref()).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,

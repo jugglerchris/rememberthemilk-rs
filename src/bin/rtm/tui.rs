@@ -191,16 +191,18 @@ impl Tui {
         // Record children
         for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
             let id = &ts.task[0].id;
-            if !ts.parent_task_id.is_empty() && task_map.contains_key(&ts.parent_task_id) {
-                children_map
-                    .get_mut(&ts.parent_task_id)
-                    .unwrap()
-                    .push(ti);
-                // Mark as not root
-                task_map
-                    .get_mut(id)
-                    .unwrap()
-                    .0 = false;
+            if let Some(parent_task_id) = &ts.parent_task_id {
+                if !parent_task_id.is_empty() && task_map.contains_key(&parent_task_id) {
+                    children_map
+                        .get_mut(&parent_task_id)
+                        .unwrap()
+                        .push(ti);
+                    // Mark as not root
+                    task_map
+                        .get_mut(id)
+                        .unwrap()
+                        .0 = false;
+                }
             }
         }
 

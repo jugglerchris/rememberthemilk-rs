@@ -63,7 +63,7 @@ fn test_deser_taskseries() {
         }],
         tags: vec!["computer".into()],
         notes: Default::default(),
-        parent_task_id: "".into(),
+        parent_task_id: None,
         source: "android".into(),
         url: "".into(),
     };
@@ -175,7 +175,7 @@ fn test_deser_tasklist_response() {
                     url: Default::default(),
                     source: "android".into(),
                     notes: Default::default(),
-                    parent_task_id: Default::default(),
+                    parent_task_id: None,
                 }]),
             }],
         },
