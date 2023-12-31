@@ -120,7 +120,7 @@ enum StepResult {
     End,
 }
 impl Tui {
-    pub async fn new() -> Result<Tui, failure::Error> {
+    pub async fn new() -> Result<Tui, anyhow::Error> {
         enable_raw_mode()?;
         let stdout = io::stdout();
         let backend = CrosstermBackend::new(stdout);
@@ -172,7 +172,7 @@ impl Tui {
 
         Ok(tui)
     }
-    async fn update_tasks(&mut self) -> Result<(), failure::Error> {
+    async fn update_tasks(&mut self) -> Result<(), anyhow::Error> {
         let filter = self.ui_state.lock().unwrap().filter.clone();
         let tasks = self.api.get_tasks_filtered(&filter).await?;
         let list_pos = 0;
@@ -243,7 +243,7 @@ impl Tui {
         Ok(())
     }
 
-    async fn update_list_display(&mut self) -> Result<(), failure::Error> {
+    async fn update_list_display(&mut self) -> Result<(), anyhow::Error> {
         let mut tree_items = vec![];
         let mut list_paths = vec![];
         let mut ui_state = self.ui_state.lock().unwrap();
@@ -333,7 +333,7 @@ impl Tui {
         ui_state.lock().unwrap().lists_loading = false;
     }
 
-    async fn update_lists(&mut self) -> Result<(), failure::Error> {
+    async fn update_lists(&mut self) -> Result<(), anyhow::Error> {
         {
             let mut ui_state = self.ui_state.lock().unwrap();
             let ui_state = &mut *ui_state;
@@ -349,7 +349,7 @@ impl Tui {
         self.update_list_display().await
     }
 
-    async fn draw(&mut self) -> Result<(), failure::Error> {
+    async fn draw(&mut self) -> Result<(), anyhow::Error> {
         let mut ui_state = self.ui_state.lock().unwrap();
         self.terminal.draw(move |f| {
             let size = f.size();
@@ -501,7 +501,7 @@ impl Tui {
         Ok(())
     }
 
-    async fn input(&mut self, prompt: &'static str, default: &str) -> Result<String, failure::Error> {
+    async fn input(&mut self, prompt: &'static str, default: &str) -> Result<String, anyhow::Error> {
         {
             let mut ui_state = self.ui_state.lock().unwrap();
             ui_state.input_value = default.into();
@@ -547,7 +547,7 @@ impl Tui {
         Ok(result)
     }
 
-    pub async fn step(&mut self) -> Result<StepResult, failure::Error> {
+    pub async fn step(&mut self) -> Result<StepResult, anyhow::Error> {
         self.draw().await?;
 
         let result = match self.event_rx.recv().await {
@@ -640,7 +640,7 @@ impl Tui {
         Ok(result)
     }
 
-    pub async fn run(&mut self) -> Result<(), failure::Error> {
+    pub async fn run(&mut self) -> Result<(), anyhow::Error> {
         loop {
             match self.step().await? {
                 StepResult::End => break,
@@ -651,7 +651,7 @@ impl Tui {
     }
 }
 
-async fn get_tasks(api: &rememberthemilk::API, filter: &str, id: &str) -> Result<RTMTasks, failure::Error> {
+async fn get_tasks(api: &rememberthemilk::API, filter: &str, id: &str) -> Result<RTMTasks, anyhow::Error> {
     let tasks = api.get_tasks_in_list(id, filter).await?;
     Ok(tasks)
 }
@@ -663,7 +663,7 @@ impl Drop for Tui {
     }
 }
 
-pub async fn tui() -> Result<(), failure::Error> {
+pub async fn tui() -> Result<(), anyhow::Error> {
     let mut tui = Tui::new().await?;
 
     tui.run().await?;

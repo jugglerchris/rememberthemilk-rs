@@ -14,7 +14,7 @@
 //!
 //! ```no_run
 //! # #[tokio::main]
-//! # async fn main() -> Result<(), failure::Error> {
+//! # async fn main() -> Result<(), anyhow::Error> {
 //! // Create the API object
 //! # use rememberthemilk::{API, Perms};
 //! let mut rtm_api = API::new("my key".to_string(), "my secret".to_string());
@@ -39,7 +39,7 @@
 //!
 //! ```no_run
 //! # #[tokio::main]
-//! # async fn main() -> Result<(), failure::Error> {
+//! # async fn main() -> Result<(), anyhow::Error> {
 //! # use rememberthemilk::API;
 //! # let api: API = unimplemented!();
 //! let tasks = api.get_all_tasks().await?;
@@ -54,31 +54,10 @@
 //! # }
 //! ```
 use chrono::{DateTime, Duration, Utc};
-use failure::{bail, Error};
+use anyhow::{bail, Error};
 use serde::{de::Unexpected, Deserialize, Serialize};
 use serde_json::from_str;
 
-#[cfg(test)]
-fn get_auth_url() -> String {
-    mockito::server_url()
-}
-
-#[cfg(not(test))]
-fn get_auth_url() -> String {
-    static MILK_AUTH_URL: &str = "https://www.rememberthemilk.com/services/auth/";
-    MILK_AUTH_URL.to_string()
-}
-
-#[cfg(test)]
-fn get_rest_url() -> String {
-    mockito::server_url()
-}
-
-#[cfg(not(test))]
-fn get_rest_url() -> String {
-    static MILK_REST_URL: &str = "https://api.rememberthemilk.com/services/rest/";
-    MILK_REST_URL.to_string()
-}
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "err")]
 /// Error type for Remember the Milk API calls.
@@ -120,6 +99,8 @@ pub struct API {
     api_secret: String,
     token: Option<String>,
     user: Option<User>,
+    #[cfg(test)]
+    server: std::rc::Rc<mockito::ServerGuard>,
 }
 
 #[derive(Deserialize, Debug, Serialize, Eq, PartialEq)]
@@ -497,6 +478,20 @@ impl API {
             api_secret,
             token: None,
             user: None,
+            #[cfg(test)]
+            server: std::rc::Rc::new(mockito::Server::new()),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_test(api_key: String, api_secret: String,
+                    server: mockito::ServerGuard) -> API {
+        API {
+            api_key,
+            api_secret,
+            token: None,
+            user: None,
+            server: std::rc::Rc::new(server),
         }
     }
 
@@ -513,6 +508,20 @@ impl API {
             api_secret: config.api_secret.unwrap(),
             token: config.token,
             user: config.user,
+            #[cfg(test)]
+            server: std::rc::Rc::new(mockito::Server::new()),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn from_config_test(config: RTMConfig,
+                            server: mockito::ServerGuard) -> API {
+        API {
+            api_key: config.api_key.unwrap(),
+            api_secret: config.api_secret.unwrap(),
+            token: config.token,
+            user: config.user,
+            server: std::rc::Rc::new(server),
         }
     }
 
@@ -567,7 +576,7 @@ impl API {
         &'a self,
         url: &'a str,
         keys: &'a [(&'a str, &'a str)],
-    ) -> Result<String, failure::Error> {
+    ) -> Result<String, anyhow::Error> {
         let auth_string = self.sign_keys(&keys);
         let client = reqwest::Client::new();
         log::trace!("make_authenticated_request: keys={:?}", keys);
@@ -585,7 +594,7 @@ impl API {
     async fn get_frob(&self) -> Result<String, Error> {
         let response = self
             .make_authenticated_request(
-                &get_rest_url(),
+                &self.get_rest_url(),
                 &[
                     ("method", "rtm.auth.getFrob"),
                     ("format", "json"),
@@ -597,6 +606,28 @@ impl API {
             .unwrap()
             .rsp;
         Ok(frob_resp.frob)
+    }
+
+    #[cfg(test)]
+    fn get_auth_url(&self) -> String {
+        self.server.url()
+    }
+
+    #[cfg(not(test))]
+    fn get_auth_url(&self) -> String {
+        static MILK_AUTH_URL: &str = "https://www.rememberthemilk.com/services/auth/";
+        MILK_AUTH_URL.to_string()
+    }
+
+    #[cfg(test)]
+    fn get_rest_url(&self) -> String {
+        self.server.url()
+    }
+
+    #[cfg(not(test))]
+    fn get_rest_url(&self) -> String {
+        static MILK_REST_URL: &str = "https://api.rememberthemilk.com/services/rest/";
+        MILK_REST_URL.to_string()
     }
 
     /// Begin user authentication.
@@ -612,7 +643,7 @@ impl API {
     pub async fn start_auth(&self, perm: Perms) -> Result<AuthState, Error> {
         let frob = self.get_frob().await?;
         let url = self.make_authenticated_url(
-            &get_auth_url(),
+            &self.get_auth_url(),
             &[
                 ("api_key", &self.api_key),
                 ("format", "json"),
@@ -634,7 +665,7 @@ impl API {
     pub async fn check_auth(&mut self, auth: &AuthState) -> Result<bool, Error> {
         let response = self
             .make_authenticated_request(
-                &get_rest_url(),
+                &self.get_rest_url(),
                 &[
                     ("method", "rtm.auth.getToken"),
                     ("format", "json"),
@@ -662,7 +693,7 @@ impl API {
         if let Some(ref tok) = self.token {
             let response = self
                 .make_authenticated_request(
-                    &get_rest_url(),
+                    &self.get_rest_url(),
                     &[
                         ("method", "rtm.auth.checkToken"),
                         ("format", "json"),
@@ -712,7 +743,7 @@ impl API {
                 params.push(("filter", filter));
             }
             let response = self
-                .make_authenticated_request(&get_rest_url(), &params)
+                .make_authenticated_request(&self.get_rest_url(), &params)
                 .await?;
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
@@ -751,7 +782,7 @@ impl API {
                 params.push(("filter", filter));
             }
             let response = self
-                .make_authenticated_request(&get_rest_url(), &params)
+                .make_authenticated_request(&self.get_rest_url(), &params)
                 .await?;
             // TODO: handle failure
             let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
@@ -776,7 +807,7 @@ impl API {
                 ("auth_token", &tok),
             ];
             let response = self
-                .make_authenticated_request(&get_rest_url(), params)
+                .make_authenticated_request(&self.get_rest_url(), params)
                 .await?;
             // TODO: handle failure
             let lists = from_str::<RTMResponse<ListsResponse>>(&response)
@@ -803,7 +834,7 @@ impl API {
                 ("auth_token", &tok),
             ];
             let response = self
-                .make_authenticated_request(&get_rest_url(), params)
+                .make_authenticated_request(&self.get_rest_url(), params)
                 .await?;
             // TODO: handle failure
             let tl = from_str::<RTMResponse<TimelineResponse>>(&response)
@@ -845,7 +876,7 @@ impl API {
                 ("tags", &tags),
             ];
             let response = self
-                .make_authenticated_request(&get_rest_url(), params)
+                .make_authenticated_request(&self.get_rest_url(), params)
                 .await?;
             let rsp = from_str::<RTMResponse<AddTagResponse>>(&response)?.rsp;
             if let Stat::Ok = rsp.stat {
@@ -898,7 +929,7 @@ impl API {
                 params.push(("parse", "1"));
             }
             let response = self
-                .make_authenticated_request(&get_rest_url(), &params)
+                .make_authenticated_request(&self.get_rest_url(), &params)
                 .await?;
             log::trace!("Add task response: {}", response);
             let rsp = from_str::<RTMResponse<AddTaskResponse>>(&response)?.rsp;

@@ -38,6 +38,7 @@ fn test_deser_taskseries() {
             "participants":[],
             "notes":[],
             "rrule":{"every":"1","$t":"FREQ=WEEKLY;INTERVAL=1;WKST=MO"},
+            "parent_task_id": "",
             "task":[
               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
             ]
@@ -61,6 +62,10 @@ fn test_deser_taskseries() {
             has_due_time: false,
         }],
         tags: vec!["computer".into()],
+        notes: Default::default(),
+        parent_task_id: "".into(),
+        source: "android".into(),
+        url: "".into(),
     };
     println!("{}", to_string(&expected).unwrap());
     let tasks = from_str::<TaskSeries>(json).unwrap();
@@ -111,6 +116,7 @@ fn test_deser_tag1() {
             "tags":{"tag":["computer"]},
             "participants":[],
             "notes":[],
+            "parent_task_id": "",
             "task":[
               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
             ]
@@ -138,6 +144,7 @@ fn test_deser_tasklist_response() {
                              "tags":{"tag":["computer"]},
                              "participants":[],
                              "notes":[],
+                             "parent_task_id": "",
                              "task":[
                                {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
                              ]}
@@ -165,6 +172,10 @@ fn test_deser_tasklist_response() {
                     }],
                     tags: vec!["computer".into()],
                     repeat: None,
+                    url: Default::default(),
+                    source: "android".into(),
+                    notes: Default::default(),
+                    parent_task_id: Default::default(),
                 }]),
             }],
         },
@@ -176,18 +187,19 @@ fn test_deser_tasklist_response() {
 
 #[tokio::test]
 async fn test_no_token() {
-    use ::mockito::mock;
+    let mut server = mockito::Server::new_async().await;
 
-    let _m = mock("GET", "/");
+    let _m = server.mock("GET", "/").create_async().await;
 
-    let api = API::new("key".into(), "secret".into());
+    let api = API::new_test("key".into(), "secret".into(), server);
 
     assert!(!api.has_token(Perms::Read).await.unwrap());
 }
 
 #[tokio::test]
 async fn test_have_token() {
-    use ::mockito::{mock, Matcher};
+    let mut server = mockito::Server::new_async().await;
+    use mockito::Matcher;
 
     let config = RTMConfig {
         api_key: Some("key".into()),
@@ -195,7 +207,7 @@ async fn test_have_token() {
         token: Some("token".into()),
         user: None,
     };
-    let m = mock("GET", "/")
+    let m = server.mock("GET", "/")
         .match_query(Matcher::AllOf(vec![
             Matcher::UrlEncoded("method".into(), "rtm.auth.checkToken".into()),
             Matcher::UrlEncoded("format".into(), "json".into()),
@@ -204,10 +216,11 @@ async fn test_have_token() {
             Matcher::Regex("api_sig=.*".into()),
         ]))
         .with_body(r#"{"rsp":{"stat":"ok","auth":{"token":"token","perms":"read","user":{"id":"1","username":"bob","fullname":"Bob T. Monkey"}}}}"#)
-        .create();
+        .create_async()
+        .await;
 
-    let api = API::from_config(config);
+    let api = API::from_config_test(config, server);
 
     assert!(api.has_token(Perms::Read).await.unwrap());
-    m.assert();
+    m.assert_async().await;
 }

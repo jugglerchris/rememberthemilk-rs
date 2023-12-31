@@ -16,18 +16,18 @@ tokio = { version = "1.0", features = ["full"] }
 reqwest = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-failure = "0.1"
+anyhow = "1.0"
 md5 = "0.7"
 chrono = {version = "0.4", features = ["serde"] }
 structopt = "0.3"
 confy = "0.5.1"
 atty = "0.2"
-termcolor = "1.1"
+termcolor = "1.4"
 env_logger = "0.10.0"
 log = "0.4.17"
-ratatui = { version = "0.24", optional = true }
-tui-tree-widget = { version = "0.15", optional = true }
-crossterm = { version = "0.25", optional = true, features = ["event-stream"] }
+ratatui = { version = "0.25", optional = true }
+tui-tree-widget = { version = "0.16", optional = true }
+crossterm = { version = "0.27", optional = true, features = ["event-stream"] }
 tokio-stream = "0.1.12"
 unicode-width = "0.1.10"
 
@@ -39,4 +39,4 @@ default = ["tui"]
 tui = ["dep:ratatui", "dep:tui-tree-widget", "dep:crossterm"]
 
 [dev-dependencies]
-mockito = "0.25"
+mockito = "1.2"

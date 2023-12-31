@@ -1,5 +1,5 @@
 #![deny(warnings)]
-use failure::bail;
+use anyhow::bail;
 use rememberthemilk::{Perms, API};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
@@ -132,7 +132,7 @@ impl Opt {
     }
 }
 
-async fn get_rtm_api(perm: Perms) -> Result<API, failure::Error> {
+async fn get_rtm_api(perm: Perms) -> Result<API, anyhow::Error> {
     let config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
         API::from_config(config)
@@ -148,7 +148,7 @@ async fn get_rtm_api(perm: Perms) -> Result<API, failure::Error> {
     Ok(api)
 }
 
-async fn auth_user(api: &mut API, perm: Perms) -> Result<(), failure::Error> {
+async fn auth_user(api: &mut API, perm: Perms) -> Result<(), anyhow::Error> {
     let auth = api.start_auth(perm).await?;
     println!("auth_url: {}", auth.url);
     println!("Press enter when authorised...");
@@ -166,7 +166,7 @@ async fn auth_user(api: &mut API, perm: Perms) -> Result<(), failure::Error> {
     Ok(())
 }
 
-async fn auth_app(key: String, secret: String, perm: Perms) -> Result<(), failure::Error> {
+async fn auth_app(key: String, secret: String, perm: Perms) -> Result<(), anyhow::Error> {
     let mut api = API::new(key, secret);
 
     auth_user(&mut api, perm).await?;
@@ -174,7 +174,7 @@ async fn auth_app(key: String, secret: String, perm: Perms) -> Result<(), failur
     Ok(())
 }
 
-async fn logout() -> Result<(), failure::Error> {
+async fn logout() -> Result<(), anyhow::Error> {
     let mut config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     config.clear_user_data();
     confy::store(RTM_APP_NAME, Some(RTM_AUTH_ID), config)?;
@@ -196,12 +196,12 @@ fn format_human_time(secs: u64) -> String {
     }
 }
 
-fn get_default_filter() -> Result<String, failure::Error> {
+fn get_default_filter() -> Result<String, anyhow::Error> {
     let settings: Settings = confy::load(RTM_APP_NAME, RTM_SETTINGS)?;
     Ok(settings.filter)
 }
 
-async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::Error> {
+async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), anyhow::Error> {
     let api = get_rtm_api(Perms::Read).await?;
     let default_filter = get_default_filter()?;
     let filter = match filter {
@@ -292,7 +292,7 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), failure::
     Ok(())
 }
 
-async fn list_lists() -> Result<(), failure::Error> {
+async fn list_lists() -> Result<(), anyhow::Error> {
     let api = get_rtm_api(Perms::Read).await?;
     let all_lists = api.get_lists().await?;
     for list in all_lists {
@@ -301,7 +301,7 @@ async fn list_lists() -> Result<(), failure::Error> {
     Ok(())
 }
 
-async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error> {
+async fn add_tag(filter: String, tag: String) -> Result<(), anyhow::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
     let tasks = api.get_tasks_filtered(&filter).await?;
@@ -321,7 +321,7 @@ async fn add_tag(filter: String, tag: String) -> Result<(), failure::Error> {
     Ok(())
 }
 
-async fn add_task(opt: &Opt, name: &str) -> Result<(), failure::Error> {
+async fn add_task(opt: &Opt, name: &str) -> Result<(), anyhow::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
 
@@ -349,7 +349,7 @@ fn print_taskseries(task: &rememberthemilk::TaskSeries) {
 mod tui;
 
 #[tokio::main]
-async fn main() -> Result<(), failure::Error> {
+async fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
 
     let opt = Opt::from_args();
