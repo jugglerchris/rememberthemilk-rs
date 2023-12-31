@@ -467,7 +467,7 @@ impl Tui {
                     if !series.notes.is_empty() {
                         text.push(Line::from(vec![Span::raw("Notes:")]));
                         for note in &series.notes {
-                            add_string_field(&mut text, "  ", note, Color::White);
+                            add_string_field(&mut text, "  ", &note.text, Color::White);
                         }
                     }
 

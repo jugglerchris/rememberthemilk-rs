@@ -224,3 +224,76 @@ async fn test_have_token() {
     assert!(api.has_token(Perms::Read).await.unwrap());
     m.assert_async().await;
 }
+
+#[test]
+fn test_deser_tasklist_response_notes() {
+    let json = r#"{"rsp": { "stat": "ok",
+           "tasks": {"rev": "my_rev",
+                     "list": [
+                       {"id": "my_list_id",
+                        "taskseries": [
+                            {"id":"blahid",
+                             "created":"2020-01-01T16:00:00Z",
+                             "modified":"2020-01-02T13:12:15Z",
+                             "name":"Do the thing",
+                             "source":"android",
+                             "url":"",
+                             "location_id":"",
+                             "tags":{"tag":["computer"]},
+                             "participants":[],
+                             "notes":{
+                                "note":[
+                                {
+                                    "id":"1234",
+                                    "created":"2023-01-01T00:00:00Z",
+                                    "modified":"2023-01-01T00:00:00Z",
+                                    "title":"",
+                                    "$t":"My note text"
+                                }]},
+                             "parent_task_id": "",
+                             "task":[
+                               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
+                             ]}
+                         ]}
+                     ]}}}"#;
+    //        println!("{}", json);
+    let expected = TasksResponse {
+        stat: Stat::Ok,
+        tasks: RTMTasks {
+            rev: "my_rev".into(),
+            list: vec![RTMLists {
+                id: "my_list_id".into(),
+                taskseries: Some(vec![TaskSeries {
+                    id: "blahid".into(),
+                    name: "Do the thing".into(),
+                    created: chrono::Utc.with_ymd_and_hms(2020, 1, 1, 16, 0, 0).unwrap(),
+                    modified: chrono::Utc.with_ymd_and_hms(2020, 1, 2, 13, 12, 15).unwrap(),
+                    task: vec![Task {
+                        id: "my_task_id".into(),
+                        due: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 0, 0, 0).unwrap()),
+                        added: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 10, 16, 0, 56).unwrap()),
+                        completed: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 13, 12, 11).unwrap()),
+                        deleted: None,
+                        has_due_time: false,
+                    }],
+                    tags: vec!["computer".into()],
+                    repeat: None,
+                    url: Default::default(),
+                    source: "android".into(),
+                    notes: vec![
+                            RTMNote {
+                                id: "1234".into(),
+                                created: chrono::Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+                                modified: chrono::Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+                                title: Default::default(),
+                                text: "My note text".into(),
+                            }],
+                    parent_task_id: None,
+                }]),
+            }],
+        },
+    };
+    println!("{}", to_string(&expected).unwrap());
+    let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
+    assert_eq!(lists, expected);
+}

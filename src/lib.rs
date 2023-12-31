@@ -256,6 +256,25 @@ where
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[serde(untagged)]
+enum NoteSer {
+    List(Vec<()>),
+    Notes(RTMNotes),
+}
+// Notes comes as either [] or an object { note: [...] }
+fn deser_notes<'de, D>(de: D) -> Result<Vec<RTMNote>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let res = NoteSer::deserialize(de);
+    match res {
+        Err(e) => Err(e),
+        Ok(NoteSer::List(_)) => Ok(vec![]),
+        Ok(NoteSer::Notes( note )) => Ok(note.note),
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 /// A recurrence rule for a repeating task.
 pub struct RRule {
@@ -268,6 +287,29 @@ pub struct RRule {
     /// The recurrence rule; see RFC 2445 for the meaning.
     #[serde(rename = "$t")]
     pub rule: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+/// A note attached to a task.
+pub struct RTMNote {
+    /// The note's id
+    pub id: String,
+    /// The creation time.
+    pub created: DateTime<Utc>,
+    /// The last modification time.
+    pub modified: DateTime<Utc>,
+    /// The note's title
+    pub title: String,
+    /// The note contents
+    #[serde(rename = "$t")]
+    pub text: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+/// A container for a set of notes on a task.
+struct RTMNotes {
+    /// The list of notes
+    pub note: Vec<RTMNote>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -290,8 +332,9 @@ pub struct TaskSeries {
     pub url: String,
     /// The parent task id (or blank)
     pub parent_task_id: String,
+    #[serde(deserialize_with = "deser_notes")]
     /// Notes
-    pub notes: Vec<String>,
+    pub notes: Vec<RTMNote>,
     /// The tasks within this series, if any.
     pub task: Vec<Task>,
     #[serde(deserialize_with = "deser_tags")]
