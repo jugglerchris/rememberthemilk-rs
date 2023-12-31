@@ -116,7 +116,6 @@ fn test_deser_tag1() {
             "tags":{"tag":["computer"]},
             "participants":[],
             "notes":[],
-            "parent_task_id": "",
             "task":[
               {"id":"my_task_id","due":"2020-01-12T00:00:00Z","has_due_time":"0","added":"2020-01-10T16:00:56Z","completed":"2020-01-12T13:12:11Z","deleted":"","priority":"N","postponed":"0","estimate":""}
             ]

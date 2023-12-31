@@ -330,6 +330,7 @@ pub struct TaskSeries {
     pub source: String,
     /// An associated URL, if any.
     pub url: String,
+    #[serde(default)]
     #[serde(deserialize_with = "empty_string_as_none")]
     /// The parent task id (or blank)
     pub parent_task_id: Option<String>,
@@ -798,6 +799,13 @@ impl API {
         } else {
             bail!("Unable to fetch tasks")
         }
+    }
+
+    /// Return a filter string which can be used to search for external id
+    /// `extid`, added by the current application.
+    pub fn get_filter_extid(&self, extid: &str) -> String {
+        let filter = format!("source:api:{}:{}", self.api_key, extid);
+        filter
     }
 
     /// Retrieve a filtered list of tasks within one list.

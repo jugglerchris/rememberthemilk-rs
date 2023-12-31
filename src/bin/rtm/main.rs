@@ -60,7 +60,12 @@ enum Command {
     /// Operate on tasks
     Tasks {
         #[structopt(long)]
+        /// Provide a filter string in RTM format.
         filter: Option<String>,
+
+        #[structopt(long)]
+        /// Look only for items with the given external id.
+        extid: Option<String>,
     },
     /// Show all lists
     Lists,
@@ -206,12 +211,24 @@ fn get_default_filter() -> Result<String, anyhow::Error> {
     Ok(settings.filter)
 }
 
-async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<ExitCode, anyhow::Error> {
+async fn list_tasks(
+    opts: &Opt,
+    filter: &Option<String>,
+    extid: &Option<String>
+) -> Result<ExitCode, anyhow::Error> {
     let api = get_rtm_api(Perms::Read).await?;
     let default_filter = get_default_filter()?;
-    let filter = match filter {
-        Some(ref s) => &s[..],
-        None => &default_filter,
+    let extid_filter;
+    let filter = match (filter, extid) {
+        (Some(ref s), None) => &s[..],
+        (None, Some(ref s)) => {
+            extid_filter = api.get_filter_extid(s);
+            &extid_filter[..]
+        }
+        (Some(_), Some(_)) => {
+            bail!("Supplying both --filter and --extid is not supported.")
+        }
+        (None, None) => &default_filter,
     };
     let all_tasks = api.get_tasks_filtered(filter).await?;
     let mut lists = HashMap::new();
@@ -362,7 +379,7 @@ async fn main() -> Result<ExitCode, anyhow::Error> {
 
     let opt = Opt::from_args();
     Ok(match opt.cmd {
-        Command::Tasks { ref filter } => list_tasks(&opt, filter).await?,
+        Command::Tasks { ref filter, ref extid } => list_tasks(&opt, filter, extid).await?,
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
         Command::AddTask { ref name, ref external_id } => add_task(&opt, &name, external_id.as_deref()).await?,
