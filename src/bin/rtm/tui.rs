@@ -518,17 +518,21 @@ impl Tui {
                     Err(e) => { return Err(e.into()); }
                     Ok(ev) => match ev {
                         Event::Key(key) => {
-                            match key.code {
-                                KeyCode::Char(c) => {
+                            use crossterm::event::KeyModifiers;
+                            match (key.code, key.modifiers) {
+                                (KeyCode::Char(c), KeyModifiers::NONE) => {
                                     self.ui_state.lock().unwrap().input_value.push(c);
                                 }
-                                KeyCode::Enter => {
+                                (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                                    self.ui_state.lock().unwrap().input_value.clear();
+                                }
+                                (KeyCode::Enter, KeyModifiers::NONE) => {
                                     break;
                                 }
-                                KeyCode::Backspace => {
+                                (KeyCode::Backspace, KeyModifiers::NONE) => {
                                     let _ = self.ui_state.lock().unwrap().input_value.pop();
                                 }
-                                KeyCode::Esc => {
+                                (KeyCode::Esc, KeyModifiers::NONE) => {
                                     self.ui_state.lock().unwrap().show_input = false;
                                     return Ok(String::new());
                                 }
