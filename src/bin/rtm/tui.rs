@@ -13,6 +13,7 @@ use tui_tree_widget::{
 use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
 use std::{io, borrow::Cow};
 use std::collections::HashMap;
+use std::process::ExitCode;
 
 use crate::{get_rtm_api, get_default_filter, tail_end};
 
@@ -669,11 +670,11 @@ impl Drop for Tui {
     }
 }
 
-pub async fn tui() -> Result<(), anyhow::Error> {
+pub async fn tui() -> Result<ExitCode, anyhow::Error> {
     let mut tui = Tui::new().await?;
 
     tui.run().await?;
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 

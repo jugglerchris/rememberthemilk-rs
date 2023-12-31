@@ -4,6 +4,7 @@ use rememberthemilk::{Perms, API};
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::io::Write;
+use std::process::ExitCode;
 use structopt::StructOpt;
 
 const RTM_APP_NAME: &'static str = "rtm";
@@ -170,19 +171,19 @@ async fn auth_user(api: &mut API, perm: Perms) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-async fn auth_app(key: String, secret: String, perm: Perms) -> Result<(), anyhow::Error> {
+async fn auth_app(key: String, secret: String, perm: Perms) -> Result<ExitCode, anyhow::Error> {
     let mut api = API::new(key, secret);
 
     auth_user(&mut api, perm).await?;
     println!("Successfully authenticated.");
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
-async fn logout() -> Result<(), anyhow::Error> {
+async fn logout() -> Result<ExitCode, anyhow::Error> {
     let mut config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     config.clear_user_data();
     confy::store(RTM_APP_NAME, Some(RTM_AUTH_ID), config)?;
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn format_human_time(secs: u64) -> String {
@@ -205,7 +206,7 @@ fn get_default_filter() -> Result<String, anyhow::Error> {
     Ok(settings.filter)
 }
 
-async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), anyhow::Error> {
+async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<ExitCode, anyhow::Error> {
     let api = get_rtm_api(Perms::Read).await?;
     let default_filter = get_default_filter()?;
     let filter = match filter {
@@ -221,6 +222,9 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), anyhow::E
         }
     }
     use termcolor::{Color, ColorSpec, WriteColor};
+    if all_tasks.list.is_empty() {
+        return Ok(ExitCode::from(1));
+    }
     let mut stdout = opts.get_stdout();
     for list in all_tasks.list {
         stdout.set_color(ColorSpec::new().set_fg(Some(Color::Magenta)))?;
@@ -293,19 +297,19 @@ async fn list_tasks(opts: &Opt, filter: &Option<String>) -> Result<(), anyhow::E
         }
     }
     stdout.reset()?;
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
-async fn list_lists() -> Result<(), anyhow::Error> {
+async fn list_lists() -> Result<ExitCode, anyhow::Error> {
     let api = get_rtm_api(Perms::Read).await?;
     let all_lists = api.get_lists().await?;
     for list in all_lists {
         println!("{}", list.name);
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
-async fn add_tag(filter: String, tag: String) -> Result<(), anyhow::Error> {
+async fn add_tag(filter: String, tag: String) -> Result<ExitCode, anyhow::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
     let tasks = api.get_tasks_filtered(&filter).await?;
@@ -322,10 +326,10 @@ async fn add_tag(filter: String, tag: String) -> Result<(), anyhow::Error> {
             }
         }
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
-async fn add_task(opt: &Opt, name: &str, external_id: Option<&str>) -> Result<(), anyhow::Error> {
+async fn add_task(opt: &Opt, name: &str, external_id: Option<&str>) -> Result<ExitCode, anyhow::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
 
@@ -335,7 +339,7 @@ async fn add_task(opt: &Opt, name: &str, external_id: Option<&str>) -> Result<()
     } else {
         println!("Successful result, but no task returned in response.")
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn print_taskseries(task: &rememberthemilk::TaskSeries) {
@@ -353,11 +357,11 @@ fn print_taskseries(task: &rememberthemilk::TaskSeries) {
 mod tui;
 
 #[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
+async fn main() -> Result<ExitCode, anyhow::Error> {
     env_logger::init();
 
     let opt = Opt::from_args();
-    match opt.cmd {
+    Ok(match opt.cmd {
         Command::Tasks { ref filter } => list_tasks(&opt, filter).await?,
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
@@ -366,7 +370,5 @@ async fn main() -> Result<(), anyhow::Error> {
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,
         Command::Logout => logout().await?,
-    }
-
-    Ok(())
+    })
 }
