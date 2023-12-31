@@ -187,18 +187,19 @@ fn test_deser_tasklist_response() {
 
 #[tokio::test]
 async fn test_no_token() {
-    use ::mockito::mock;
+    let mut server = mockito::Server::new_async().await;
 
-    let _m = mock("GET", "/");
+    let _m = server.mock("GET", "/").create_async().await;
 
-    let api = API::new("key".into(), "secret".into());
+    let api = API::new_test("key".into(), "secret".into(), server);
 
     assert!(!api.has_token(Perms::Read).await.unwrap());
 }
 
 #[tokio::test]
 async fn test_have_token() {
-    use ::mockito::{mock, Matcher};
+    let mut server = mockito::Server::new_async().await;
+    use mockito::Matcher;
 
     let config = RTMConfig {
         api_key: Some("key".into()),
@@ -206,7 +207,7 @@ async fn test_have_token() {
         token: Some("token".into()),
         user: None,
     };
-    let m = mock("GET", "/")
+    let m = server.mock("GET", "/")
         .match_query(Matcher::AllOf(vec![
             Matcher::UrlEncoded("method".into(), "rtm.auth.checkToken".into()),
             Matcher::UrlEncoded("format".into(), "json".into()),
@@ -215,10 +216,11 @@ async fn test_have_token() {
             Matcher::Regex("api_sig=.*".into()),
         ]))
         .with_body(r#"{"rsp":{"stat":"ok","auth":{"token":"token","perms":"read","user":{"id":"1","username":"bob","fullname":"Bob T. Monkey"}}}}"#)
-        .create();
+        .create_async()
+        .await;
 
-    let api = API::from_config(config);
+    let api = API::from_config_test(config, server);
 
     assert!(api.has_token(Perms::Read).await.unwrap());
-    m.assert();
+    m.assert_async().await;
 }

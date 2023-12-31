@@ -39,4 +39,4 @@ default = ["tui"]
 tui = ["dep:ratatui", "dep:tui-tree-widget", "dep:crossterm"]
 
 [dev-dependencies]
-mockito = "0.25"
+mockito = "1.2"
