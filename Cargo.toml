@@ -1,8 +1,8 @@
 [package]
 name = "rememberthemilk"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Chris Emerson <github@mail.nosreme.org>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "Client library for the Remember The Milk todo list service."
 homepage = "https://github.com/jugglerchris/rememberthemilk-rs"
