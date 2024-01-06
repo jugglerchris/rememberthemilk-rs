@@ -351,10 +351,18 @@ async fn add_task(opt: &Opt, name: &str, external_id: Option<&str>) -> Result<Ex
     let timeline = api.get_timeline().await?;
 
     let added = api.add_task(&timeline, &name, None, None, external_id, opt.smart).await?;
-    if let Some(task) = added {
-        print_taskseries(&task);
+    if let Some(list) = added {
+        if let Some(taskseries) = list.taskseries {
+            if taskseries.len() > 0 {
+                print_taskseries(&taskseries[0]);
+            } else {
+                println!("Successful result, but no task in series.")
+            }
+        } else {
+            println!("Successful result, but no task series.")
+        }
     } else {
-        println!("Successful result, but no task returned in response.")
+        println!("Successful result, but no list returned.")
     }
     Ok(ExitCode::SUCCESS)
 }
