@@ -53,7 +53,7 @@
 //! # Ok(())
 //! # }
 //! ```
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Utc, NaiveTime};
 use anyhow::{bail, Error};
 use serde::{de::Unexpected, Deserialize, Serialize};
 use serde_json::from_str;
@@ -481,6 +481,13 @@ struct AddTagResponse {
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct AddTaskResponse {
+    stat: Stat,
+    transaction: Option<Transaction>,
+    list: Option<RTMLists>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+struct SetDueDateResponse {
     stat: Stat,
     transaction: Option<Transaction>,
     list: Option<RTMLists>,
@@ -958,7 +965,7 @@ impl API {
         parent: Option<&Task>,
         external_id: Option<&str>,
         smart: bool,
-    ) -> Result<Option<TaskSeries>, Error> {
+    ) -> Result<Option<RTMLists>, Error> {
         if let Some(ref tok) = self.token {
             let mut params = vec![
                 ("method", "rtm.tasks.add"),
@@ -985,6 +992,58 @@ impl API {
                 .await?;
             log::trace!("Add task response: {}", response);
             let rsp = from_str::<RTMResponse<AddTaskResponse>>(&response)?.rsp;
+            if let Stat::Ok = rsp.stat {
+                if let Some(list) = rsp.list {
+                    if let Some(series) = &list.taskseries {
+                        if series.len() >= 1 {
+                            Ok(Some(list))
+                        } else {
+                            Ok(None)
+                        }
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            } else {
+                bail!("Error adding task")
+            }
+        } else {
+            bail!("Unable to fetch tasks")
+        }
+    }
+
+    /// Set a task's due date.
+    pub async fn set_due_date(
+        &self,
+        timeline: &RTMTimeline,
+        list: &RTMLists,
+        taskseries: &TaskSeries,
+        task: &Task,
+        due: DateTime<Utc>,
+    ) -> Result<Option<TaskSeries>, Error> {
+        if let Some(ref tok) = self.token {
+            let mut params = vec![
+                ("method", "rtm.tasks.setDueDate"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("timeline", &timeline.0),
+                ("list_id", &list.id),
+                ("taskseries_id", &taskseries.id),
+                ("task_id", &task.id),
+            ];
+            let date_str = due.to_rfc3339();
+            params.push(("due", &date_str));
+            if due.time() != NaiveTime::from_hms_opt(0, 0, 0).unwrap() {
+                params.push(("has_due_time", "1"));
+            }
+            let response = self
+                .make_authenticated_request(&self.get_rest_url(), &params)
+                .await?;
+            log::trace!("Set due date response: {}", response);
+            let rsp = from_str::<RTMResponse<SetDueDateResponse>>(&response)?.rsp;
             if let Stat::Ok = rsp.stat {
                 if let Some(list) = rsp.list {
                     if let Some(mut series) = list.taskseries {
