@@ -1,21 +1,25 @@
 use chrono::{DateTime, Utc};
-use rememberthemilk::{Perms, API, RTMTasks, RTMList, TaskSeries};
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio_stream::StreamExt;
+use crossterm::{
+    event::{Event, KeyCode},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
 use ratatui::{
     backend::CrosstermBackend,
-    widgets::{Block, Borders, BorderType, Paragraph, Clear},
-    Terminal, style::{Style, Color, Modifier}, text::{Line, Span}, layout::Rect
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+    Terminal,
 };
-use tui_tree_widget::{
-    Tree, TreeItem, TreeState
-};
-use crossterm::{terminal::{disable_raw_mode, enable_raw_mode}, event::{KeyCode, Event}};
-use std::{io, borrow::Cow};
+use rememberthemilk::{Perms, RTMList, RTMTasks, TaskSeries, API};
 use std::collections::HashMap;
 use std::process::ExitCode;
+use std::{borrow::Cow, io};
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio_stream::StreamExt;
+use tui_tree_widget::{Tree, TreeItem, TreeState};
 
-use crate::{get_rtm_api, get_default_filter, tail_end};
+use crate::{get_default_filter, get_rtm_api, tail_end};
 
 #[derive(Copy, Clone)]
 enum DisplayMode {
@@ -77,12 +81,14 @@ impl<'t> Iterator for RtmTaskListIterator<'t> {
         loop {
             let list_idx = match self.next_list_idx {
                 Some(idx) => idx,
-                None => { return None; }
+                None => {
+                    return None;
+                }
             };
             if list_idx >= self.tasks.list.len() {
                 // We're done.
                 self.next_list_idx = None;
-                return None
+                return None;
             }
             let list = &self.tasks.list[list_idx];
             if let Some(vseries) = list.taskseries.as_ref() {
@@ -94,10 +100,10 @@ impl<'t> Iterator for RtmTaskListIterator<'t> {
                 }
                 let idx = self.next_task_idx;
                 self.next_task_idx += 1;
-                return Some(&vseries[idx])
+                return Some(&vseries[idx]);
             } else {
                 // No taskseries
-                self.next_list_idx  = Some(list_idx + 1);
+                self.next_list_idx = Some(list_idx + 1);
                 self.next_task_idx = 0;
                 continue;
             }
@@ -133,9 +139,17 @@ impl Tui {
         {
             let event_tx = event_tx.clone();
             tokio::spawn(async move {
-                event_tx.send(TuiEvent::StateChanged).await.map_err(|_|()).unwrap();
+                event_tx
+                    .send(TuiEvent::StateChanged)
+                    .await
+                    .map_err(|_| ())
+                    .unwrap();
                 while let Some(evt) = events.next().await {
-                    event_tx.send(TuiEvent::Input(evt)).await.map_err(|_|()).unwrap();
+                    event_tx
+                        .send(TuiEvent::Input(evt))
+                        .await
+                        .map_err(|_| ())
+                        .unwrap();
                 }
             });
         }
@@ -194,20 +208,21 @@ impl Tui {
             let id = &ts.task[0].id;
             if let Some(parent_task_id) = &ts.parent_task_id {
                 if !parent_task_id.is_empty() && task_map.contains_key(&parent_task_id) {
-                    children_map
-                        .get_mut(&parent_task_id)
-                        .unwrap()
-                        .push(ti);
+                    children_map.get_mut(&parent_task_id).unwrap().push(ti);
                     // Mark as not root
-                    task_map
-                        .get_mut(id)
-                        .unwrap()
-                        .0 = false;
+                    task_map.get_mut(id).unwrap().0 = false;
                 }
             }
         }
 
-        fn add_item(task_map: &mut HashMap<&String, (bool, TreeItem<'static, usize>)>, children_map: &mut HashMap<&String, Vec<usize>>, tasks: &Vec<TaskSeries>, list: &mut Vec<TreeItem<'static, usize>>, ti: usize, mut item: TreeItem<'static, usize>) {
+        fn add_item(
+            task_map: &mut HashMap<&String, (bool, TreeItem<'static, usize>)>,
+            children_map: &mut HashMap<&String, Vec<usize>>,
+            tasks: &Vec<TaskSeries>,
+            list: &mut Vec<TreeItem<'static, usize>>,
+            ti: usize,
+            mut item: TreeItem<'static, usize>,
+        ) {
             let id = &tasks[ti].task[0].id;
             let children = children_map.remove(id).unwrap();
             if !children.is_empty() {
@@ -229,7 +244,14 @@ impl Tui {
             let (is_root, _) = task_map.get(id).unwrap();
             if *is_root {
                 let (_, item) = task_map.remove(id).unwrap();
-                add_item(&mut task_map, &mut children_map, &flat_tasks, &mut tree_items, ti, item);
+                add_item(
+                    &mut task_map,
+                    &mut children_map,
+                    &flat_tasks,
+                    &mut tree_items,
+                    ti,
+                    item,
+                );
             }
         }
         if tree_items.is_empty() {
@@ -252,35 +274,32 @@ impl Tui {
         let mut ui_state = self.ui_state.lock().unwrap();
         for (i, list) in ui_state.lists.iter().enumerate() {
             if let Some(tasks) = list.tasks.as_ref() {
-                let len: usize =
-                   tasks
+                let len: usize = tasks
                     .list
                     .iter()
                     .map(|l| l.taskseries.as_ref().map(|ts| ts.len()).unwrap_or(0))
                     .sum();
                 if len > 0 {
-                    let mut item =
-                        TreeItem::new_leaf(
-                                i,
-                                format!("{} [{}]", &list.list.name, len)
-                            ).style(Style::default().fg(Color::LightYellow));
+                    let mut item = TreeItem::new_leaf(i, format!("{} [{}]", &list.list.name, len))
+                        .style(Style::default().fg(Color::LightYellow));
                     if let Some(tasks) = list.tasks.as_ref() {
-                        for (ti, task) in RtmTaskListIterator::new(tasks).enumerate()
-                        {
-                            item.add_child(TreeItem::new_leaf(ti, format!("  {}", task.name))).unwrap();
+                        for (ti, task) in RtmTaskListIterator::new(tasks).enumerate() {
+                            item.add_child(TreeItem::new_leaf(ti, format!("  {}", task.name)))
+                                .unwrap();
                         }
                     }
                     tree_items.push(item);
                 } else {
                     tree_items.push(
-                        TreeItem::new_leaf(
-                            i,
-                            format!("{}", &list.list.name)
-                            ).style(Style::default().fg(Color::DarkGray)));
+                        TreeItem::new_leaf(i, format!("{}", &list.list.name))
+                            .style(Style::default().fg(Color::DarkGray)),
+                    );
                 }
             } else {
-                tree_items.push(TreeItem::new_leaf(i, list.list.name.clone())
-                            .style(Style::default().fg(Color::White)));
+                tree_items.push(
+                    TreeItem::new_leaf(i, list.list.name.clone())
+                        .style(Style::default().fg(Color::White)),
+                );
             }
             list_paths.push((i, 0));
         }
@@ -301,13 +320,19 @@ impl Tui {
         let tx = ui_state.lock().unwrap().event_tx.clone();
         {
             let mut ui_state = ui_state.lock().unwrap();
-            ui_state.lists = lists.into_iter().map(|l| ListDispState {
-                list: l,
-                tasks: None,
-            }).collect();
+            ui_state.lists = lists
+                .into_iter()
+                .map(|l| ListDispState {
+                    list: l,
+                    tasks: None,
+                })
+                .collect();
             ui_state.lists_loading = false;
         }
-        tx.send(TuiEvent::StateChanged).await.map_err(|_|()).unwrap();
+        tx.send(TuiEvent::StateChanged)
+            .await
+            .map_err(|_| ())
+            .unwrap();
 
         // Now fetch each list
         let (filter, ids) = {
@@ -325,13 +350,15 @@ impl Tui {
                 let mut ui_state = ui_state.lock().unwrap();
                 if ui_state.lists.len() > idx && ui_state.lists[idx].list.id == list_id {
                     ui_state.lists[idx].tasks = Some(tasks);
-
                 } else {
                     // We're out of step - return
                     return;
                 }
             }
-            tx.send(TuiEvent::StateChanged).await.map_err(|_|()).unwrap();
+            tx.send(TuiEvent::StateChanged)
+                .await
+                .map_err(|_| ())
+                .unwrap();
         }
         ui_state.lock().unwrap().lists_loading = false;
     }
@@ -346,9 +373,11 @@ impl Tui {
 
             ui_state.list_pos = 0;
             ui_state.show_task = false;
-
         }
-        tokio::spawn(Tui::fetch_lists(self.api.clone(), std::sync::Arc::clone(&self.ui_state)));
+        tokio::spawn(Tui::fetch_lists(
+            self.api.clone(),
+            std::sync::Arc::clone(&self.ui_state),
+        ));
         self.update_list_display().await
     }
 
@@ -363,10 +392,10 @@ impl Tui {
                 .border_type(BorderType::Rounded)
                 .style(Style::default().bg(Color::Black));
             let tree = Tree::new(ui_state.tree_items.clone())
-                            .unwrap()
-                            .block(block)
-                            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
-                            .highlight_symbol("*");
+                .unwrap()
+                .block(block)
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_symbol("*");
             let mut list_size = size;
             if ui_state.show_task {
                 list_size.height = list_size.height / 2;
@@ -382,18 +411,20 @@ impl Tui {
                     .style(Style::default().bg(Color::Black));
                 let tree_pos = ui_state.tree_state.selected();
                 let series = match ui_state.display_mode {
-                    DisplayMode::Tasks => {
-                        Some(RtmTaskListIterator::new(&ui_state.tasks).nth(*tree_pos.last().unwrap()).unwrap())
-                    }
+                    DisplayMode::Tasks => Some(
+                        RtmTaskListIterator::new(&ui_state.tasks)
+                            .nth(*tree_pos.last().unwrap())
+                            .unwrap(),
+                    ),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
-                            Some(RtmTaskListIterator::new(
-                                    ui_state.lists[tree_pos[0]]
-                                    .tasks
-                                    .as_ref()
-                                    .unwrap())
+                            Some(
+                                RtmTaskListIterator::new(
+                                    ui_state.lists[tree_pos[0]].tasks.as_ref().unwrap(),
+                                )
                                 .nth(tree_pos[1])
-                                .unwrap())
+                                .unwrap(),
+                            )
                         } else {
                             None
                         }
@@ -401,13 +432,9 @@ impl Tui {
                 };
 
                 if let Some(series) = series {
-                    let mut text = vec![
-                        Line::from(vec![
-                                   Span::raw(series.name.clone()),
-                        ])];
+                    let mut text = vec![Line::from(vec![Span::raw(series.name.clone())])];
                     if !series.tags.is_empty() {
-                        let mut spans = vec![
-                            Span::raw("Tags: ")];
+                        let mut spans = vec![Span::raw("Tags: ")];
                         let tag_style = Style::default()
                             .fg(Color::Green)
                             .add_modifier(Modifier::BOLD);
@@ -415,35 +442,32 @@ impl Tui {
                             spans.push(Span::styled(tag.clone(), tag_style));
                             spans.push(" ".into());
                         }
-                        text.push( Line::from(spans));
+                        text.push(Line::from(spans));
                     }
                     if let Some(repeat) = &series.repeat {
                         let style = Style::default()
                             .fg(Color::Blue)
                             .add_modifier(Modifier::BOLD);
-                        let mut spans = vec![
-                            Span::raw("Repeat: ")];
+                        let mut spans = vec![Span::raw("Repeat: ")];
                         if repeat.every {
                             spans.push(Span::raw("every "));
                         } else {
                             spans.push(Span::raw("after "));
                         }
-                        spans.push(
-                            Span::styled(repeat.rule.clone(), style));
-                        text.push( Line::from(spans));
+                        spans.push(Span::styled(repeat.rule.clone(), style));
+                        text.push(Line::from(spans));
                     }
                     for task in &series.task {
-                        fn add_date_field(text: &mut Vec<Line>, heading: &'static str,
-                                          value: &Option<DateTime<Utc>>,
-                                          color: Color) {
+                        fn add_date_field(
+                            text: &mut Vec<Line>,
+                            heading: &'static str,
+                            value: &Option<DateTime<Utc>>,
+                            color: Color,
+                        ) {
                             if let Some(date) = value {
-                                let style = Style::default()
-                                    .fg(color)
-                                    .add_modifier(Modifier::BOLD);
-                                let mut spans = vec![
-                                    Span::raw(heading)];
-                                spans.push(
-                                    Span::styled(format!("{}", date.format("%c")), style));
+                                let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
+                                let mut spans = vec![Span::raw(heading)];
+                                spans.push(Span::styled(format!("{}", date.format("%c")), style));
                                 text.push(Line::from(spans));
                             }
                         }
@@ -451,17 +475,16 @@ impl Tui {
                         add_date_field(&mut text, "Completed: ", &task.completed, Color::Magenta);
                         add_date_field(&mut text, "Deleted: ", &task.deleted, Color::Red);
                     }
-                    fn add_string_field(text: &mut Vec<Line>, heading: &'static str,
-                                        value: &str,
-                                        color: Color) {
+                    fn add_string_field(
+                        text: &mut Vec<Line>,
+                        heading: &'static str,
+                        value: &str,
+                        color: Color,
+                    ) {
                         if !value.is_empty() {
-                            let style = Style::default()
-                                .fg(color)
-                                .add_modifier(Modifier::BOLD);
-                            let mut spans = vec![
-                                Span::raw(heading)];
-                            spans.push(
-                                Span::styled(value.to_owned(), style));
+                            let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
+                            let mut spans = vec![Span::raw(heading)];
+                            spans.push(Span::styled(value.to_owned(), style));
                             text.push(Line::from(spans));
                         }
                     }
@@ -474,11 +497,13 @@ impl Tui {
                         }
                     }
 
-                    let par = Paragraph::new(text)
-                        .block(block);
+                    let par = Paragraph::new(text).block(block);
                     let area = Rect::new(
-                        0, list_size.height,
-                        size.width, size.height - list_size.height);
+                        0,
+                        list_size.height,
+                        size.width,
+                        size.height - list_size.height,
+                    );
                     f.render_widget(par, area);
                 }
             }
@@ -488,23 +513,22 @@ impl Tui {
                     .borders(Borders::TOP)
                     .border_style(Style::default().fg(Color::White))
                     .style(Style::default().bg(Color::Black));
-                let area = Rect::new(0, size.height-2, size.width, 2);
+                let area = Rect::new(0, size.height - 2, size.width, 2);
                 f.render_widget(Clear, area);
 
-                let visible_value = tail_end(&ui_state.input_value, size.width as usize -1);
-                let text = vec![
-                    Span::raw(visible_value),
-                    Span::raw("_"),
-                ];
-                f.render_widget(
-                    Paragraph::new(vec![Line::from(text)])
-                        .block(block), area);
+                let visible_value = tail_end(&ui_state.input_value, size.width as usize - 1);
+                let text = vec![Span::raw(visible_value), Span::raw("_")];
+                f.render_widget(Paragraph::new(vec![Line::from(text)]).block(block), area);
             }
         })?;
         Ok(())
     }
 
-    async fn input(&mut self, prompt: &'static str, default: &str) -> Result<String, anyhow::Error> {
+    async fn input(
+        &mut self,
+        prompt: &'static str,
+        default: &str,
+    ) -> Result<String, anyhow::Error> {
         {
             let mut ui_state = self.ui_state.lock().unwrap();
             ui_state.input_value = default.into();
@@ -514,9 +538,13 @@ impl Tui {
         loop {
             self.draw().await?;
             match self.event_rx.recv().await {
-                None => { return Ok("".into()); }
+                None => {
+                    return Ok("".into());
+                }
                 Some(TuiEvent::Input(ev)) => match ev {
-                    Err(e) => { return Err(e.into()); }
+                    Err(e) => {
+                        return Err(e.into());
+                    }
                     Ok(ev) => match ev {
                         Event::Key(key) => {
                             use crossterm::event::KeyModifiers;
@@ -540,9 +568,9 @@ impl Tui {
                                 _ => (),
                             }
                         }
-                        _ => ()
-                    }
-                }
+                        _ => (),
+                    },
+                },
                 Some(TuiEvent::StateChanged) => (),
             }
         }
@@ -558,81 +586,80 @@ impl Tui {
         self.draw().await?;
 
         let result = match self.event_rx.recv().await {
-            None => { return Ok(StepResult::End); }
-            Some(TuiEvent::Input(ev)) => match ev {
-                Err(e) => { return Err(e.into()); }
-                Ok(ev) => match ev {
-                    Event::Key(key) => {
-                        match key.code {
-                            KeyCode::Char('q') => {
-                                StepResult::End
-                            }
-                            KeyCode::Char('g') => {
-                                let cur_filt = self.ui_state.lock().unwrap().filter.clone();
-                                let filter = self.input("Enter RTM filter:", &cur_filt).await?;
-                                if !filter.is_empty() {
-                                    self.ui_state.lock().unwrap().filter = filter;
-                                    self.update_tasks().await?;
-                                }
-                                StepResult::Cont
-                            }
-                            KeyCode::Char('A') => {
-                                let task_desc = self.input("Enter new task:", "").await?;
-                                if !task_desc.is_empty() {
-                                    let timeline = self.api.get_timeline().await?;
-                                    let _added = self.api.add_task(
-                                        &timeline,
-                                        &task_desc,
-                                        None, None, None,
-                                        true).await?;
-                                    self.update_tasks().await?;
-                                }
-                                StepResult::Cont
-                            }
-                            KeyCode::Char('L') => {
-                                self.update_lists().await?;
-                                StepResult::Cont
-                            }
-                            KeyCode::Enter => {
-                                let mut ui_state = self.ui_state.lock().unwrap();
-                                match ui_state.display_mode {
-                                    DisplayMode::Tasks => {
-                                        ui_state.show_task = !ui_state.show_task;
-                                    }
-                                    DisplayMode::Lists => {
-                                        ui_state.show_task = !ui_state.show_task;
-                                    }
-                                }
-                                StepResult::Cont
-                            }
-                            KeyCode::Up | KeyCode::Char('k') => {
-                                let mut ui_state = self.ui_state.lock().unwrap();
-                                let ui_state = &mut *ui_state;
-                                ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
-                                ui_state.tree_state.key_up(&ui_state.tree_items[..]);
-                                StepResult::Cont
-                            }
-                            KeyCode::Down | KeyCode::Char('j')  => {
-                                let mut ui_state = self.ui_state.lock().unwrap();
-                                let ui_state = &mut *ui_state;
-                                if ui_state.list_pos+1 < ui_state.tree_items.len() {
-                                    ui_state.list_pos += 1;
-                                }
-                                ui_state.tree_state.key_down(&ui_state.tree_items[..]);
-                                StepResult::Cont
-                            }
-                            KeyCode::Char(' ') => {
-                                let mut ui_state = self.ui_state.lock().unwrap();
-                                let ui_state = &mut *ui_state;
-                                ui_state.tree_state.toggle_selected();
-                                StepResult::Cont
-                            }
-                            _ => StepResult::Cont,
-                        }
-                    }
-                    _ => StepResult::Cont,
-                }
+            None => {
+                return Ok(StepResult::End);
             }
+            Some(TuiEvent::Input(ev)) => match ev {
+                Err(e) => {
+                    return Err(e.into());
+                }
+                Ok(ev) => match ev {
+                    Event::Key(key) => match key.code {
+                        KeyCode::Char('q') => StepResult::End,
+                        KeyCode::Char('g') => {
+                            let cur_filt = self.ui_state.lock().unwrap().filter.clone();
+                            let filter = self.input("Enter RTM filter:", &cur_filt).await?;
+                            if !filter.is_empty() {
+                                self.ui_state.lock().unwrap().filter = filter;
+                                self.update_tasks().await?;
+                            }
+                            StepResult::Cont
+                        }
+                        KeyCode::Char('A') => {
+                            let task_desc = self.input("Enter new task:", "").await?;
+                            if !task_desc.is_empty() {
+                                let timeline = self.api.get_timeline().await?;
+                                let _added = self
+                                    .api
+                                    .add_task(&timeline, &task_desc, None, None, None, true)
+                                    .await?;
+                                self.update_tasks().await?;
+                            }
+                            StepResult::Cont
+                        }
+                        KeyCode::Char('L') => {
+                            self.update_lists().await?;
+                            StepResult::Cont
+                        }
+                        KeyCode::Enter => {
+                            let mut ui_state = self.ui_state.lock().unwrap();
+                            match ui_state.display_mode {
+                                DisplayMode::Tasks => {
+                                    ui_state.show_task = !ui_state.show_task;
+                                }
+                                DisplayMode::Lists => {
+                                    ui_state.show_task = !ui_state.show_task;
+                                }
+                            }
+                            StepResult::Cont
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            let mut ui_state = self.ui_state.lock().unwrap();
+                            let ui_state = &mut *ui_state;
+                            ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
+                            ui_state.tree_state.key_up(&ui_state.tree_items[..]);
+                            StepResult::Cont
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            let mut ui_state = self.ui_state.lock().unwrap();
+                            let ui_state = &mut *ui_state;
+                            if ui_state.list_pos + 1 < ui_state.tree_items.len() {
+                                ui_state.list_pos += 1;
+                            }
+                            ui_state.tree_state.key_down(&ui_state.tree_items[..]);
+                            StepResult::Cont
+                        }
+                        KeyCode::Char(' ') => {
+                            let mut ui_state = self.ui_state.lock().unwrap();
+                            let ui_state = &mut *ui_state;
+                            ui_state.tree_state.toggle_selected();
+                            StepResult::Cont
+                        }
+                        _ => StepResult::Cont,
+                    },
+                    _ => StepResult::Cont,
+                },
+            },
             Some(TuiEvent::StateChanged) => {
                 let display_mode = self.ui_state.lock().unwrap().display_mode;
                 match display_mode {
@@ -658,7 +685,11 @@ impl Tui {
     }
 }
 
-async fn get_tasks(api: &rememberthemilk::API, filter: &str, id: &str) -> Result<RTMTasks, anyhow::Error> {
+async fn get_tasks(
+    api: &rememberthemilk::API,
+    filter: &str,
+    id: &str,
+) -> Result<RTMTasks, anyhow::Error> {
     let tasks = api.get_tasks_in_list(id, filter).await?;
     Ok(tasks)
 }
@@ -677,4 +708,3 @@ pub async fn tui() -> Result<ExitCode, anyhow::Error> {
 
     Ok(ExitCode::SUCCESS)
 }
-

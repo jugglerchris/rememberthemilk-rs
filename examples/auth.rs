@@ -1,5 +1,5 @@
-use confy;
 use anyhow::bail;
+use confy;
 use rememberthemilk::{Perms, API};
 use std::env;
 

@@ -48,7 +48,9 @@ fn test_deser_taskseries() {
         id: "blahid".into(),
         name: "Do the thing".into(),
         created: chrono::Utc.with_ymd_and_hms(2020, 1, 1, 16, 0, 0).unwrap(),
-        modified: chrono::Utc.with_ymd_and_hms(2020, 1, 2, 13, 12, 15).unwrap(),
+        modified: chrono::Utc
+            .with_ymd_and_hms(2020, 1, 2, 13, 12, 15)
+            .unwrap(),
         repeat: Some(RRule {
             every: true,
             rule: "FREQ=WEEKLY;INTERVAL=1;WKST=MO".into(),
@@ -56,8 +58,16 @@ fn test_deser_taskseries() {
         task: vec![Task {
             id: "my_task_id".into(),
             due: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 0, 0, 0).unwrap()),
-            added: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 10, 16, 0, 56).unwrap()),
-            completed: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 13, 12, 11).unwrap()),
+            added: Some(
+                chrono::Utc
+                    .with_ymd_and_hms(2020, 1, 10, 16, 0, 56)
+                    .unwrap(),
+            ),
+            completed: Some(
+                chrono::Utc
+                    .with_ymd_and_hms(2020, 1, 12, 13, 12, 11)
+                    .unwrap(),
+            ),
             deleted: None,
             has_due_time: false,
         }],
@@ -93,8 +103,16 @@ fn test_deser_task_nodue() {
     let expected = Task {
         id: "my_task_id".into(),
         due: None,
-        added: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 10, 16, 0, 56).unwrap()),
-        completed: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 13, 12, 11).unwrap()),
+        added: Some(
+            chrono::Utc
+                .with_ymd_and_hms(2020, 1, 10, 16, 0, 56)
+                .unwrap(),
+        ),
+        completed: Some(
+            chrono::Utc
+                .with_ymd_and_hms(2020, 1, 12, 13, 12, 11)
+                .unwrap(),
+        ),
         deleted: None,
         has_due_time: false,
     };
@@ -160,12 +178,22 @@ fn test_deser_tasklist_response() {
                     id: "blahid".into(),
                     name: "Do the thing".into(),
                     created: chrono::Utc.with_ymd_and_hms(2020, 1, 1, 16, 0, 0).unwrap(),
-                    modified: chrono::Utc.with_ymd_and_hms(2020, 1, 2, 13, 12, 15).unwrap(),
+                    modified: chrono::Utc
+                        .with_ymd_and_hms(2020, 1, 2, 13, 12, 15)
+                        .unwrap(),
                     task: vec![Task {
                         id: "my_task_id".into(),
                         due: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 0, 0, 0).unwrap()),
-                        added: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 10, 16, 0, 56).unwrap()),
-                        completed: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 13, 12, 11).unwrap()),
+                        added: Some(
+                            chrono::Utc
+                                .with_ymd_and_hms(2020, 1, 10, 16, 0, 56)
+                                .unwrap(),
+                        ),
+                        completed: Some(
+                            chrono::Utc
+                                .with_ymd_and_hms(2020, 1, 12, 13, 12, 11)
+                                .unwrap(),
+                        ),
                         deleted: None,
                         has_due_time: false,
                     }],
@@ -266,12 +294,22 @@ fn test_deser_tasklist_response_notes() {
                     id: "blahid".into(),
                     name: "Do the thing".into(),
                     created: chrono::Utc.with_ymd_and_hms(2020, 1, 1, 16, 0, 0).unwrap(),
-                    modified: chrono::Utc.with_ymd_and_hms(2020, 1, 2, 13, 12, 15).unwrap(),
+                    modified: chrono::Utc
+                        .with_ymd_and_hms(2020, 1, 2, 13, 12, 15)
+                        .unwrap(),
                     task: vec![Task {
                         id: "my_task_id".into(),
                         due: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 0, 0, 0).unwrap()),
-                        added: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 10, 16, 0, 56).unwrap()),
-                        completed: Some(chrono::Utc.with_ymd_and_hms(2020, 1, 12, 13, 12, 11).unwrap()),
+                        added: Some(
+                            chrono::Utc
+                                .with_ymd_and_hms(2020, 1, 10, 16, 0, 56)
+                                .unwrap(),
+                        ),
+                        completed: Some(
+                            chrono::Utc
+                                .with_ymd_and_hms(2020, 1, 12, 13, 12, 11)
+                                .unwrap(),
+                        ),
                         deleted: None,
                         has_due_time: false,
                     }],
@@ -279,14 +317,13 @@ fn test_deser_tasklist_response_notes() {
                     repeat: None,
                     url: Default::default(),
                     source: "android".into(),
-                    notes: vec![
-                            RTMNote {
-                                id: "1234".into(),
-                                created: chrono::Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
-                                modified: chrono::Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
-                                title: Default::default(),
-                                text: "My note text".into(),
-                            }],
+                    notes: vec![RTMNote {
+                        id: "1234".into(),
+                        created: chrono::Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+                        modified: chrono::Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+                        title: Default::default(),
+                        text: "My note text".into(),
+                    }],
                     parent_task_id: None,
                 }]),
             }],

@@ -1,7 +1,7 @@
 #![deny(warnings)]
 use anyhow::bail;
 use rememberthemilk::{Perms, API};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 use std::process::ExitCode;
@@ -214,7 +214,7 @@ fn get_default_filter() -> Result<String, anyhow::Error> {
 async fn list_tasks(
     opts: &Opt,
     filter: &Option<String>,
-    extid: &Option<String>
+    extid: &Option<String>,
 ) -> Result<ExitCode, anyhow::Error> {
     let api = get_rtm_api(Perms::Read).await?;
     let default_filter = get_default_filter()?;
@@ -346,11 +346,17 @@ async fn add_tag(filter: String, tag: String) -> Result<ExitCode, anyhow::Error>
     Ok(ExitCode::SUCCESS)
 }
 
-async fn add_task(opt: &Opt, name: &str, external_id: Option<&str>) -> Result<ExitCode, anyhow::Error> {
+async fn add_task(
+    opt: &Opt,
+    name: &str,
+    external_id: Option<&str>,
+) -> Result<ExitCode, anyhow::Error> {
     let api = get_rtm_api(Perms::Write).await?;
     let timeline = api.get_timeline().await?;
 
-    let added = api.add_task(&timeline, &name, None, None, external_id, opt.smart).await?;
+    let added = api
+        .add_task(&timeline, &name, None, None, external_id, opt.smart)
+        .await?;
     if let Some(list) = added {
         if let Some(taskseries) = list.taskseries {
             if taskseries.len() > 0 {
@@ -387,10 +393,16 @@ async fn main() -> Result<ExitCode, anyhow::Error> {
 
     let opt = Opt::from_args();
     Ok(match opt.cmd {
-        Command::Tasks { ref filter, ref extid } => list_tasks(&opt, filter, extid).await?,
+        Command::Tasks {
+            ref filter,
+            ref extid,
+        } => list_tasks(&opt, filter, extid).await?,
         Command::Lists => list_lists().await?,
         Command::AddTag { filter, tag } => add_tag(filter, tag).await?,
-        Command::AddTask { ref name, ref external_id } => add_task(&opt, &name, external_id.as_deref()).await?,
+        Command::AddTask {
+            ref name,
+            ref external_id,
+        } => add_task(&opt, &name, external_id.as_deref()).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,

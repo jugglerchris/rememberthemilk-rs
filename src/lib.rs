@@ -53,8 +53,8 @@
 //! # Ok(())
 //! # }
 //! ```
-use chrono::{DateTime, Duration, Utc, NaiveTime};
 use anyhow::{bail, Error};
+use chrono::{DateTime, Duration, NaiveTime, Utc};
 use serde::{de::Unexpected, Deserialize, Serialize};
 use serde_json::from_str;
 
@@ -271,7 +271,7 @@ where
     match res {
         Err(e) => Err(e),
         Ok(NoteSer::List(_)) => Ok(vec![]),
-        Ok(NoteSer::Notes( note )) => Ok(note.note),
+        Ok(NoteSer::Notes(note)) => Ok(note.note),
     }
 }
 
@@ -536,8 +536,7 @@ impl API {
     }
 
     #[cfg(test)]
-    pub fn new_test(api_key: String, api_secret: String,
-                    server: mockito::ServerGuard) -> API {
+    pub fn new_test(api_key: String, api_secret: String, server: mockito::ServerGuard) -> API {
         API {
             api_key,
             api_secret,
@@ -566,8 +565,7 @@ impl API {
     }
 
     #[cfg(test)]
-    pub fn from_config_test(config: RTMConfig,
-                            server: mockito::ServerGuard) -> API {
+    pub fn from_config_test(config: RTMConfig, server: mockito::ServerGuard) -> API {
         API {
             api_key: config.api_key.unwrap(),
             api_secret: config.api_secret.unwrap(),
@@ -632,13 +630,13 @@ impl API {
         let auth_string = self.sign_keys(&keys);
         let client = reqwest::Client::new();
         log::trace!("make_authenticated_request: keys={:?}", keys);
-        let req = client.request(reqwest::Method::GET, url)
-                         .query(keys)
-                         .query(&[("api_sig", auth_string)])
-                         .build()?;
+        let req = client
+            .request(reqwest::Method::GET, url)
+            .query(keys)
+            .query(&[("api_sig", auth_string)])
+            .build()?;
         log::trace!("make_authenticated_request: url={}", req.url());
-        let body = client.execute(req)
-                .await?.text().await?;
+        let body = client.execute(req).await?.text().await?;
         log::trace!("make_authenticated_request: reply body={}", body);
         Ok(body)
     }
