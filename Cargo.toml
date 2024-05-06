@@ -1,6 +1,6 @@
 [package]
 name = "rememberthemilk"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Chris Emerson <github@mail.nosreme.org>"]
 edition = "2021"
 license = "MIT"
@@ -13,7 +13,7 @@ categories = ["api-bindings", "command-line-utilities"]
 
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
-reqwest = "0.11"
+reqwest = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
@@ -23,10 +23,10 @@ structopt = "0.3"
 confy = "0.6.0"
 atty = "0.2"
 termcolor = "1.4"
-env_logger = "0.10.0"
+env_logger = "0.11.0"
 log = "0.4.17"
-ratatui = { version = "0.25", optional = true }
-tui-tree-widget = { version = "0.16", optional = true }
+ratatui = { version = "0.26", optional = true }
+tui-tree-widget = { version = "0.19", optional = true }
 crossterm = { version = "0.27", optional = true, features = ["event-stream"] }
 tokio-stream = "0.1.12"
 unicode-width = "0.1.10"
