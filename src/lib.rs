@@ -191,7 +191,7 @@ struct AuthResponse {
     stat: Stat,
     auth: Auth,
 }
-
+#[allow(dead_code)]
 trait RTMToResult {
     type Type;
     fn into_result(self) -> Result<Self::Type, RTMError>;
