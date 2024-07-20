@@ -241,17 +241,18 @@ impl Tui {
         let mut tree_items = Vec::new();
         for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
             let id = &ts.task[0].id;
-            let (is_root, _) = task_map.get(id).unwrap();
-            if *is_root {
-                let (_, item) = task_map.remove(id).unwrap();
-                add_item(
-                    &mut task_map,
-                    &mut children_map,
-                    &flat_tasks,
-                    &mut tree_items,
-                    ti,
-                    item,
-                );
+            if let Some((is_root, _)) = task_map.get(id) {
+                if *is_root {
+                    let (_, item) = task_map.remove(id).unwrap();
+                    add_item(
+                        &mut task_map,
+                        &mut children_map,
+                        &flat_tasks,
+                        &mut tree_items,
+                        ti,
+                        item,
+                    );
+                }
             }
         }
         if tree_items.is_empty() {
@@ -280,10 +281,13 @@ impl Tui {
                     .map(|l| l.taskseries.as_ref().map(|ts| ts.len()).unwrap_or(0))
                     .sum();
                 if len > 0 {
-                    let mut item = TreeItem::new_leaf(i,
-                                                      Text::styled(
-                                                          format!("{} [{}]", &list.list.name, len),
-                                                          Style::default().fg(Color::LightYellow)));
+                    let mut item = TreeItem::new_leaf(
+                        i,
+                        Text::styled(
+                            format!("{} [{}]", &list.list.name, len),
+                            Style::default().fg(Color::LightYellow),
+                        ),
+                    );
                     if let Some(tasks) = list.tasks.as_ref() {
                         for (ti, task) in RtmTaskListIterator::new(tasks).enumerate() {
                             item.add_child(TreeItem::new_leaf(ti, format!("  {}", task.name)))
@@ -292,16 +296,19 @@ impl Tui {
                     }
                     tree_items.push(item);
                 } else {
-                    tree_items.push(
-                        TreeItem::new_leaf(i,
-                                           Text::styled(
-                                               format!("{}", &list.list.name), Style::default().fg(Color::DarkGray))),
-                    );
+                    tree_items.push(TreeItem::new_leaf(
+                        i,
+                        Text::styled(
+                            format!("{}", &list.list.name),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ));
                 }
             } else {
-                tree_items.push(
-                    TreeItem::new_leaf(i, Text::styled(list.list.name.clone(), Style::default().fg(Color::White))),
-                );
+                tree_items.push(TreeItem::new_leaf(
+                    i,
+                    Text::styled(list.list.name.clone(), Style::default().fg(Color::White)),
+                ));
             }
             list_paths.push((i, 0));
         }
