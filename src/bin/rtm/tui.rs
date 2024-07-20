@@ -7,7 +7,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::Rect,
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Terminal,
 };
@@ -241,17 +241,18 @@ impl Tui {
         let mut tree_items = Vec::new();
         for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
             let id = &ts.task[0].id;
-            let (is_root, _) = task_map.get(id).unwrap();
-            if *is_root {
-                let (_, item) = task_map.remove(id).unwrap();
-                add_item(
-                    &mut task_map,
-                    &mut children_map,
-                    &flat_tasks,
-                    &mut tree_items,
-                    ti,
-                    item,
-                );
+            if let Some((is_root, _)) = task_map.get(id) {
+                if *is_root {
+                    let (_, item) = task_map.remove(id).unwrap();
+                    add_item(
+                        &mut task_map,
+                        &mut children_map,
+                        &flat_tasks,
+                        &mut tree_items,
+                        ti,
+                        item,
+                    );
+                }
             }
         }
         if tree_items.is_empty() {
@@ -259,7 +260,7 @@ impl Tui {
         }
         {
             let mut ui_state = self.ui_state.lock().unwrap();
-            ui_state.tree_state.select_first(&tree_items);
+            ui_state.tree_state.select_first();
             ui_state.tasks = tasks;
             ui_state.tree_items = tree_items;
             ui_state.list_pos = list_pos;
@@ -280,8 +281,13 @@ impl Tui {
                     .map(|l| l.taskseries.as_ref().map(|ts| ts.len()).unwrap_or(0))
                     .sum();
                 if len > 0 {
-                    let mut item = TreeItem::new_leaf(i, format!("{} [{}]", &list.list.name, len))
-                        .style(Style::default().fg(Color::LightYellow));
+                    let mut item = TreeItem::new_leaf(
+                        i,
+                        Text::styled(
+                            format!("{} [{}]", &list.list.name, len),
+                            Style::default().fg(Color::LightYellow),
+                        ),
+                    );
                     if let Some(tasks) = list.tasks.as_ref() {
                         for (ti, task) in RtmTaskListIterator::new(tasks).enumerate() {
                             item.add_child(TreeItem::new_leaf(ti, format!("  {}", task.name)))
@@ -290,16 +296,19 @@ impl Tui {
                     }
                     tree_items.push(item);
                 } else {
-                    tree_items.push(
-                        TreeItem::new_leaf(i, format!("{}", &list.list.name))
-                            .style(Style::default().fg(Color::DarkGray)),
-                    );
+                    tree_items.push(TreeItem::new_leaf(
+                        i,
+                        Text::styled(
+                            format!("{}", &list.list.name),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ));
                 }
             } else {
-                tree_items.push(
-                    TreeItem::new_leaf(i, list.list.name.clone())
-                        .style(Style::default().fg(Color::White)),
-                );
+                tree_items.push(TreeItem::new_leaf(
+                    i,
+                    Text::styled(list.list.name.clone(), Style::default().fg(Color::White)),
+                ));
             }
             list_paths.push((i, 0));
         }
@@ -369,7 +378,7 @@ impl Tui {
             let ui_state = &mut *ui_state;
             ui_state.display_mode = DisplayMode::Lists;
             ui_state.lists_loading = true;
-            ui_state.tree_state.select_first(&ui_state.tree_items[..]);
+            ui_state.tree_state.select_first();
 
             ui_state.list_pos = 0;
             ui_state.show_task = false;
@@ -391,7 +400,8 @@ impl Tui {
                 .border_style(Style::default().fg(Color::White))
                 .border_type(BorderType::Rounded)
                 .style(Style::default().bg(Color::Black));
-            let tree = Tree::new(ui_state.tree_items.clone())
+            let tree_items = ui_state.tree_items.clone();
+            let tree = Tree::new(&tree_items)
                 .unwrap()
                 .block(block)
                 .highlight_style(Style::default().add_modifier(Modifier::BOLD))
@@ -637,7 +647,7 @@ impl Tui {
                             let mut ui_state = self.ui_state.lock().unwrap();
                             let ui_state = &mut *ui_state;
                             ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
-                            ui_state.tree_state.key_up(&ui_state.tree_items[..]);
+                            ui_state.tree_state.key_up();
                             StepResult::Cont
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
@@ -646,7 +656,7 @@ impl Tui {
                             if ui_state.list_pos + 1 < ui_state.tree_items.len() {
                                 ui_state.list_pos += 1;
                             }
-                            ui_state.tree_state.key_down(&ui_state.tree_items[..]);
+                            ui_state.tree_state.key_down();
                             StepResult::Cont
                         }
                         KeyCode::Char(' ') => {
