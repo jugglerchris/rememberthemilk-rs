@@ -393,7 +393,7 @@ impl Tui {
     async fn draw(&mut self) -> Result<(), anyhow::Error> {
         let mut ui_state = self.ui_state.lock().unwrap();
         self.terminal.draw(move |f| {
-            let size = f.size();
+            let size = f.area();
             let block = Block::default()
                 .title(ui_state.display_mode.title().into_owned())
                 .borders(Borders::TOP | Borders::BOTTOM)

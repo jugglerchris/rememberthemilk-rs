@@ -1,6 +1,6 @@
 [package]
 name = "rememberthemilk"
-version = "0.4.3"
+version = "0.4.4"
 authors = ["Chris Emerson <github@mail.nosreme.org>"]
 edition = "2021"
 license = "MIT"
@@ -24,9 +24,9 @@ atty = "0.2"
 termcolor = "1.4"
 env_logger = "0.11.0"
 log = "0.4.17"
-ratatui = { version = "0.27", optional = true }
-tui-tree-widget = { version = "0.21", optional = true }
-crossterm = { version = "0.27", optional = true, features = ["event-stream"] }
+ratatui = { version = "0.28", optional = true }
+tui-tree-widget = { version = "0.22", optional = true }
+crossterm = { version = "0.28", optional = true, features = ["event-stream"] }
 tokio-stream = "0.1.12"
 unicode-width = "0.1.10"
 
