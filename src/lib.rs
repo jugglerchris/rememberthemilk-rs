@@ -372,6 +372,8 @@ pub struct Task {
     #[serde(deserialize_with = "empty_string_as_none")]
     /// The date/time when this task was completed
     pub completed: Option<DateTime<Utc>>,
+    /// The task's priority
+    pub priority: String,
 }
 
 /// Describes how much time is left to complete this task, or perhaps
