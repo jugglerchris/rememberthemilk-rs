@@ -70,6 +70,7 @@ fn test_deser_taskseries() {
             ),
             deleted: None,
             has_due_time: false,
+            priority: "N".into(),
         }],
         tags: vec!["computer".into()],
         notes: Default::default(),
@@ -115,6 +116,7 @@ fn test_deser_task_nodue() {
         ),
         deleted: None,
         has_due_time: false,
+        priority: "N".into(),
     };
     println!("{}", to_string(&expected).unwrap());
     let task = from_str::<Task>(json).unwrap();
@@ -196,6 +198,7 @@ fn test_deser_tasklist_response() {
                         ),
                         deleted: None,
                         has_due_time: false,
+                        priority: "N".into(),
                     }],
                     tags: vec!["computer".into()],
                     repeat: None,
@@ -312,6 +315,7 @@ fn test_deser_tasklist_response_notes() {
                         ),
                         deleted: None,
                         has_due_time: false,
+                        priority: "N".into(),
                     }],
                     tags: vec!["computer".into()],
                     repeat: None,

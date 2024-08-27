@@ -372,6 +372,8 @@ pub struct Task {
     #[serde(deserialize_with = "empty_string_as_none")]
     /// The date/time when this task was completed
     pub completed: Option<DateTime<Utc>>,
+    /// The task's priority
+    pub priority: String,
 }
 
 /// Describes how much time is left to complete this task, or perhaps
@@ -475,6 +477,12 @@ struct Transaction {
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct AddTagResponse {
+    stat: Stat,
+    list: RTMLists,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+struct SetURLResponse {
     stat: Stat,
     list: RTMLists,
 }
@@ -899,6 +907,47 @@ impl API {
                 .rsp
                 .timeline;
             Ok(RTMTimeline(tl))
+        } else {
+            bail!("Unable to fetch tasks")
+        }
+    }
+
+    /// Add one or more tags to a task.
+    ///
+    /// * `timeline`: a timeline as retrieved using [API::get_timeline]
+    /// * `list`, `taskseries` and `task` identify the task to tag.
+    /// * `url` is a String with url to add to this task.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn set_url(
+        &self,
+        timeline: &RTMTimeline,
+        list: &RTMLists,
+        taskseries: &TaskSeries,
+        task: &Task,
+        url: &str,
+    ) -> Result<(), Error> {
+        if let Some(ref tok) = self.token {
+            let params = &[
+                ("method", "rtm.tasks.setURL"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("timeline", &timeline.0),
+                ("list_id", &list.id),
+                ("taskseries_id", &taskseries.id),
+                ("task_id", &task.id),
+                ("url", &url),
+            ];
+            let response = self
+                .make_authenticated_request(&self.get_rest_url(), params)
+                .await?;
+            let rsp = from_str::<RTMResponse<SetURLResponse>>(&response)?.rsp;
+            if let Stat::Ok = rsp.stat {
+                Ok(())
+            } else {
+                bail!("Error adding task")
+            }
         } else {
             bail!("Unable to fetch tasks")
         }
