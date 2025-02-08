@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 use std::process::ExitCode;
-use structopt::StructOpt;
+use clap::Parser;
 
 const RTM_APP_NAME: &'static str = "rtm";
 const RTM_AUTH_ID: &'static str = "rtm_auth";
@@ -55,15 +55,15 @@ fn tail_end(input: &str, width: usize) -> String {
     result
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
 enum Command {
     /// Operate on tasks
     Tasks {
-        #[structopt(long)]
+        #[clap(long)]
         /// Provide a filter string in RTM format.
         filter: Option<String>,
 
-        #[structopt(long)]
+        #[clap(long)]
         /// Look only for items with the given external id.
         extid: Option<String>,
     },
@@ -72,20 +72,20 @@ enum Command {
     /// Add a tag to filtered messages
     AddTag {
         tag: String,
-        #[structopt(long)]
+        #[clap(long)]
         filter: String,
     },
     /// Add a new task
     AddTask {
         name: String,
-        #[structopt(long)]
+        #[clap(long)]
         external_id: Option<String>,
     },
     /// Authorise the app
     AuthApp {
         key: String,
         secret: String,
-        #[structopt(default_value = "read", long)]
+        #[clap(default_value = "read", long)]
         perm: Perms,
     },
     #[cfg(feature = "tui")]
@@ -115,18 +115,18 @@ impl std::str::FromStr for ColourOption {
     }
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
 struct Opt {
-    #[structopt(short, long)]
+    #[clap(short, long)]
     verbose: bool,
 
-    #[structopt(short, long)]
+    #[clap(short, long)]
     smart: bool,
 
-    #[structopt(default_value = "auto", long)]
+    #[clap(default_value = "auto", long)]
     colour: ColourOption,
 
-    #[structopt(subcommand)]
+    #[clap(subcommand)]
     cmd: Command,
 }
 
@@ -391,7 +391,7 @@ mod tui;
 async fn main() -> Result<ExitCode, anyhow::Error> {
     env_logger::init();
 
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     Ok(match opt.cmd {
         Command::Tasks {
             ref filter,
