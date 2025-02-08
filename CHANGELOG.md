@@ -9,6 +9,10 @@ Possible log types:
 - `[fixed]` for any bug fixes.
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 
+### 0.4.5
+
+- [changed] Updated dependencies, including structopt -> clap.
+
 ### 0.4.4
 
 - [changed] Updated ratatui and related crates.
