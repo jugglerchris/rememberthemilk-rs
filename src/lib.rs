@@ -543,6 +543,7 @@ impl API {
         }
     }
 
+    #[allow(missing_docs)]
     #[cfg(test)]
     pub fn new_test(api_key: String, api_secret: String, server: mockito::ServerGuard) -> API {
         API {
@@ -572,6 +573,7 @@ impl API {
         }
     }
 
+    #[allow(missing_docs)]
     #[cfg(test)]
     pub fn from_config_test(config: RTMConfig, server: mockito::ServerGuard) -> API {
         API {
