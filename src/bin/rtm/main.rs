@@ -396,6 +396,9 @@ mod tui;
 async fn main() -> Result<ExitCode, anyhow::Error> {
     env_logger::init();
 
+    #[cfg(feature = "console-subscriber")]
+    console_subscriber::init();
+
     let opt = Opt::parse();
     Ok(match opt.cmd {
         Command::Tasks {

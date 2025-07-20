@@ -29,6 +29,7 @@ tui-tree-widget = { version = "0.23", optional = true }
 crossterm = { version = "0.28", optional = true, features = ["event-stream"] }
 tokio-stream = "0.1.12"
 unicode-width = "0.2.0"
+console-subscriber = { version = "0.4.1", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -39,6 +40,7 @@ name = "rtm"
 [features]
 default = ["tui"]
 tui = ["dep:ratatui", "dep:tui-tree-widget", "dep:crossterm"]
+console-subscriber = ["dep:console-subscriber"]
 
 [dev-dependencies]
 mockito = "1.2"
