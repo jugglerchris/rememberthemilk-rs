@@ -9,6 +9,14 @@ Possible log types:
 - `[fixed]` for any bug fixes.
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 
+### 0.4.6
+
+- [added] ?/h in TUI to show keys.
+- [added] ^L in TUI to refresh screen
+- [added] API and TUI key (C) to mark complete
+- [added] Optional console-subscriber support
+- [changed] Updated some dependencies.
+
 ### 0.4.5
 
 - [changed] Updated dependencies, including structopt -> clap.
