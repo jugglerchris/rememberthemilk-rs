@@ -515,6 +515,7 @@ struct TimelineResponse {
 ///
 /// This is required for API calls which can modify state.  They can also
 /// be used to undo (within a timeline) but this is not yet implemented.
+#[derive(Debug, Clone)]
 pub struct RTMTimeline(String);
 
 /// The state of an ongoing user authentication attempt.
@@ -993,7 +994,45 @@ impl API {
                 bail!("Error adding task")
             }
         } else {
-            bail!("Unable to fetch tasks")
+            bail!("Unable to add task")
+        }
+    }
+
+    /// Mark a task as complete
+    ///
+    /// * `timeline`: a timeline as retrieved using [API::get_timeline]
+    /// * `list`, `taskseries` and `task` identify the task to tag.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn mark_complete(
+        &self,
+        timeline: &RTMTimeline,
+        list: &RTMLists,
+        taskseries: &TaskSeries,
+        task: &Task,
+    ) -> Result<(), Error> {
+        if let Some(ref tok) = self.token {
+            let params = &[
+                ("method", "rtm.tasks.complete"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("timeline", &timeline.0),
+                ("list_id", &list.id),
+                ("taskseries_id", &taskseries.id),
+                ("task_id", &task.id),
+            ];
+            let response = self
+                .make_authenticated_request(&self.get_rest_url(), params)
+                .await?;
+            let rsp = from_str::<RTMResponse<AddTagResponse>>(&response)?.rsp;
+            if let Stat::Ok = rsp.stat {
+                Ok(())
+            } else {
+                bail!("Error completing task")
+            }
+        } else {
+            bail!("Unable to complete task")
         }
     }
 

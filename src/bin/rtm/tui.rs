@@ -3,6 +3,7 @@ use crossterm::{
     event::{Event, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
+use log::{info, trace};
 use ratatui::{
     backend::CrosstermBackend,
     layout::Rect,
@@ -11,7 +12,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Terminal,
 };
-use rememberthemilk::{Perms, RTMList, RTMTasks, TaskSeries, API};
+use rememberthemilk::{Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries, API};
 use std::collections::HashMap;
 use std::process::ExitCode;
 use std::{borrow::Cow, io};
@@ -24,6 +25,7 @@ use crate::{get_default_filter, get_rtm_api, tail_end};
 static HELP_TEXT: &'static str = r#"Key bindings:
 
 A       New task
+C       Mark current task complete
 g       Change filter
 L       View lists
 q       Quit
@@ -73,6 +75,7 @@ struct UiState {
     event_tx: Sender<TuiEvent>,
 }
 
+
 struct RtmTaskListIterator<'t> {
     tasks: &'t RTMTasks,
     next_list_idx: Option<usize>,
@@ -90,7 +93,7 @@ impl<'t> RtmTaskListIterator<'t> {
 }
 
 impl<'t> Iterator for RtmTaskListIterator<'t> {
-    type Item = &'t TaskSeries;
+    type Item = (&'t RTMLists, &'t TaskSeries);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -115,7 +118,7 @@ impl<'t> Iterator for RtmTaskListIterator<'t> {
                 }
                 let idx = self.next_task_idx;
                 self.next_task_idx += 1;
-                return Some(&vseries[idx]);
+                return Some((list, &vseries[idx]));
             } else {
                 // No taskseries
                 self.next_list_idx = Some(list_idx + 1);
@@ -133,6 +136,7 @@ enum TuiEvent {
 
 struct Tui {
     api: API,
+    current_timeline: Option<RTMTimeline>,
     event_rx: Receiver<TuiEvent>,
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
     ui_state: std::sync::Arc<std::sync::Mutex<UiState>>,
@@ -143,6 +147,7 @@ enum StepResult {
 }
 impl Tui {
     pub async fn new() -> Result<Tui, anyhow::Error> {
+        info!("Setting up terminal...");
         enable_raw_mode()?;
         let stdout = io::stdout();
         let backend = CrosstermBackend::new(stdout);
@@ -153,6 +158,7 @@ impl Tui {
 
         {
             let event_tx = event_tx.clone();
+            info!("Spawning event task...");
             tokio::spawn(async move {
                 event_tx
                     .send(TuiEvent::StateChanged)
@@ -169,6 +175,7 @@ impl Tui {
             });
         }
 
+        info!("Getting API instance...");
         let api = get_rtm_api(Perms::Read).await?;
         let tree_state: TreeState<usize> = Default::default();
         let filter = get_default_filter()?;
@@ -199,29 +206,37 @@ impl Tui {
             event_rx,
             terminal,
             ui_state: std::sync::Arc::new(std::sync::Mutex::new(ui_state)),
+            current_timeline: None,
         };
+        info!("Updating tasks...");
         tui.update_tasks().await?;
+        info!("TUI ready.");
 
         Ok(tui)
     }
     async fn update_tasks(&mut self) -> Result<(), anyhow::Error> {
+        trace!("Getting filter...");
         let filter = self.ui_state.lock().unwrap().filter.clone();
+        trace!("Requesting tasks...");
         let tasks = self.api.get_tasks_filtered(&filter).await?;
+        trace!("Got tasks.");
         let list_pos = 0;
 
-        let flat_tasks: Vec<_> = RtmTaskListIterator::new(&tasks).cloned().collect();
+        let flat_tasks: Vec<TaskSeries> = RtmTaskListIterator::new(&tasks)
+            .map(|(_l, t)| t.clone())
+            .collect();
 
         // Map id to (is_root, TreeItem)
         let mut task_map = HashMap::new();
         let mut children_map = HashMap::new();
         // Map by id
-        for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
             let id = &ts.task[0].id;
             task_map.insert(id, (true, TreeItem::new_leaf(ti, ts.name.clone())));
             children_map.insert(id, Vec::new());
         }
         // Record children
-        for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
             let id = &ts.task[0].id;
             if let Some(parent_task_id) = &ts.parent_task_id {
                 if !parent_task_id.is_empty() && task_map.contains_key(&parent_task_id) {
@@ -256,7 +271,7 @@ impl Tui {
             list.push(item);
         }
         let mut tree_items = Vec::new();
-        for (ti, ts) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
             let id = &ts.task[0].id;
             if let Some((is_root, _)) = task_map.get(id) {
                 if *is_root {
@@ -306,7 +321,7 @@ impl Tui {
                         ),
                     );
                     if let Some(tasks) = list.tasks.as_ref() {
-                        for (ti, task) in RtmTaskListIterator::new(tasks).enumerate() {
+                        for (ti, (_l, task)) in RtmTaskListIterator::new(tasks).enumerate() {
                             item.add_child(TreeItem::new_leaf(ti, format!("  {}", task.name)))
                                 .unwrap();
                         }
@@ -441,7 +456,8 @@ impl Tui {
                     DisplayMode::Tasks => Some(
                         RtmTaskListIterator::new(&ui_state.tasks)
                             .nth(*tree_pos.last().unwrap())
-                            .unwrap(),
+                            .unwrap()
+                            .1,
                     ),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
@@ -450,7 +466,8 @@ impl Tui {
                                     ui_state.lists[tree_pos[0]].tasks.as_ref().unwrap(),
                                 )
                                 .nth(tree_pos[1])
-                                .unwrap(),
+                                .unwrap()
+                                .1,
                             )
                         } else {
                             None
@@ -559,7 +576,7 @@ impl Tui {
                     .fold((0, 0), |(mw, mh), line| {
                         (mw.max(line.len()), mh+1)
                     });
-                let area = Rect::new(1, 1, max_w as u16, max_h as u16);
+                let area = Rect::new(1, 1, max_w as u16 + 2, max_h as u16 + 2);
                 f.render_widget(Clear, area);
                 f.render_widget(Paragraph::new(Text::raw(help_text)).block(block), area);
             }
@@ -592,7 +609,7 @@ impl Tui {
                         Event::Key(key) => {
                             use crossterm::event::KeyModifiers;
                             match (key.code, key.modifiers) {
-                                (KeyCode::Char(c), KeyModifiers::NONE) => {
+                                (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
                                     self.ui_state.lock().unwrap().input_value.push(c);
                                 }
                                 (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
@@ -651,7 +668,7 @@ impl Tui {
                         KeyCode::Char('A') => {
                             let task_desc = self.input("Enter new task:", "").await?;
                             if !task_desc.is_empty() {
-                                let timeline = self.api.get_timeline().await?;
+                                let timeline = self.get_timeline().await?;
                                 let _added = self
                                     .api
                                     .add_task(&timeline, &task_desc, None, None, None, true)
@@ -673,6 +690,23 @@ impl Tui {
                                 DisplayMode::Lists => {
                                     ui_state.show_task = !ui_state.show_task;
                                 }
+                            }
+                            StepResult::Cont
+                        }
+                        KeyCode::Char('C') => {
+                            let display_mode = self.ui_state.lock().unwrap().display_mode;
+                            match display_mode {
+                                DisplayMode::Tasks => {
+                                    info!("Marking task as complete");
+                                    self.for_each_selected(
+                                        async |api, tl, list, ts, task| {
+                                            api.mark_complete(
+                                                tl, list, ts, task).await
+                                        }).await?;
+                                    info!("Marked as complete!");
+                                    self.update_tasks().await?;
+                                }
+                                DisplayMode::Lists => { }
                             }
                             StepResult::Cont
                         }
@@ -732,6 +766,31 @@ impl Tui {
         }
         Ok(())
     }
+
+    async fn get_timeline(&mut self) -> Result<RTMTimeline, anyhow::Error> {
+        if self.current_timeline.is_none() {
+            self.current_timeline = Some(
+                self.api.get_timeline().await?
+            );
+        }
+        Ok(self.current_timeline.as_ref().unwrap().clone())
+    }
+
+    async fn for_each_selected<F>(&mut self, f: F) -> Result<(), anyhow::Error>
+        where F: AsyncFn(&API, &RTMTimeline, &RTMLists, &TaskSeries, &Task) -> Result<(), anyhow::Error>
+    {
+        let timeline = self.get_timeline().await?;
+
+        let ui_state = self.ui_state.lock().unwrap();
+        let mut it = RtmTaskListIterator::new(&ui_state.tasks);
+        let tree_pos = ui_state.tree_state.selected();
+        if let Some((list, ts)) = it.nth(*tree_pos.last().unwrap()) {
+            let task = &ts.task[0];
+            f(&self.api, &timeline, list, ts, task).await?;
+        }
+
+        Ok(())
+    }
 }
 
 async fn get_tasks(
@@ -751,9 +810,12 @@ impl Drop for Tui {
 }
 
 pub async fn tui() -> Result<ExitCode, anyhow::Error> {
+    info!("Creating new tui...");
     let mut tui = Tui::new().await?;
 
+    info!("Running tui...");
     tui.run().await?;
+    info!("Tui finished.");
 
     Ok(ExitCode::SUCCESS)
 }
