@@ -139,6 +139,7 @@ enum TuiEvent {
 struct Tui {
     api: API,
     current_timeline: Option<RTMTimeline>,
+    transactions: Vec<String>,
     event_rx: Receiver<TuiEvent>,
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
     ui_state: std::sync::Arc<std::sync::Mutex<UiState>>,
@@ -178,7 +179,7 @@ impl Tui {
         }
 
         info!("Getting API instance...");
-        let api = get_rtm_api(Perms::Read).await?;
+        let api = get_rtm_api(Perms::Delete).await?;
         let tree_state: TreeState<usize> = Default::default();
         let filter = get_default_filter()?;
         let show_task = false;
@@ -210,6 +211,7 @@ impl Tui {
             terminal,
             ui_state: std::sync::Arc::new(std::sync::Mutex::new(ui_state)),
             current_timeline: None,
+            transactions: Vec::new(),
         };
         info!("Updating tasks...");
         tui.update_tasks().await?;
@@ -718,14 +720,28 @@ impl Tui {
                                         info!("Marking task as complete");
                                         self.for_each_selected(
                                             async |api, tl, list, ts, task| {
-                                                api.mark_complete(
-                                                    tl, list, ts, task).await
+                                                let resp = api.mark_complete(
+                                                    tl, list, ts, task).await?;
+                                                if let Some(transaction) = resp {
+                                                    if transaction.undoable && !transaction.id.is_empty() {
+                                                        Ok(Some(transaction.id))
+                                                    } else {
+                                                        Ok(None)
+                                                    }
+                                                } else {
+                                                    Ok(None)
+                                                }
                                             }).await?;
                                         info!("Marked as complete!");
                                         self.update_tasks().await?;
                                     }
                                     DisplayMode::Lists => { }
                                 }
+                                StepResult::Cont
+                            }
+                            (KeyCode::Char('U'), KeyModifiers::SHIFT) => {
+                                self.undo_latest().await?;
+                                self.update_tasks().await?;
                                 StepResult::Cont
                             }
                             (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
@@ -791,12 +807,14 @@ impl Tui {
             self.current_timeline = Some(
                 self.api.get_timeline().await?
             );
+            self.transactions.clear();
         }
         Ok(self.current_timeline.as_ref().unwrap().clone())
     }
 
+    // The callback returns an optional transaction id for undo.
     async fn for_each_selected<F>(&mut self, f: F) -> Result<(), anyhow::Error>
-        where F: AsyncFn(&API, &RTMTimeline, &RTMLists, &TaskSeries, &Task) -> Result<(), anyhow::Error>
+        where F: AsyncFn(&API, &RTMTimeline, &RTMLists, &TaskSeries, &Task) -> Result<Option<String>, anyhow::Error>
     {
         let timeline = self.get_timeline().await?;
 
@@ -805,9 +823,20 @@ impl Tui {
         let tree_pos = ui_state.tree_state.selected();
         if let Some((list, ts)) = it.nth(*tree_pos.last().unwrap()) {
             let task = &ts.task[0];
-            f(&self.api, &timeline, list, ts, task).await?;
+            if let Some(tid) = f(&self.api, &timeline, list, ts, task).await? {
+                self.transactions.push(tid);
+            }
         }
 
+        Ok(())
+    }
+
+    async fn undo_latest(&mut self) -> Result<(), anyhow::Error> {
+        if let Some(tl) = &self.current_timeline {
+            if let Some(transaction) = self.transactions.pop() {
+                self.api.undo_transaction(tl, &transaction).await?;
+            }
+        }
         Ok(())
     }
 }

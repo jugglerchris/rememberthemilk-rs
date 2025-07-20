@@ -14,6 +14,7 @@ Possible log types:
 - [added] ?/h in TUI to show keys.
 - [added] ^L in TUI to refresh screen
 - [added] API and TUI key (C) to mark complete
+- [added] Limited undo support ("mark complete" only)
 - [added] Optional console-subscriber support
 - [changed] Updated some dependencies.
 
