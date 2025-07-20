@@ -21,6 +21,20 @@ use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::{get_default_filter, get_rtm_api, tail_end};
 
+static HELP_TEXT: &'static str = r#"Key bindings:
+
+A       New task
+g       Change filter
+L       View lists
+q       Quit
+Up/k    Move up one
+Down/j  Move down one
+Space   Toggle selection
+?/h     Show this help
+enter   Toggle task details
+"#;
+
+
 #[derive(Copy, Clone)]
 enum DisplayMode {
     Tasks,
@@ -55,6 +69,7 @@ struct UiState {
     input_prompt: &'static str,
     input_value: String,
     show_input: bool,
+    show_help: bool,
     event_tx: Sender<TuiEvent>,
 }
 
@@ -158,6 +173,7 @@ impl Tui {
         let tree_state: TreeState<usize> = Default::default();
         let filter = get_default_filter()?;
         let show_task = false;
+        let show_help = false;
         let display_mode = DisplayMode::Tasks;
 
         let ui_state = UiState {
@@ -171,6 +187,7 @@ impl Tui {
             lists: Default::default(),
             lists_loading: false,
             show_task,
+            show_help,
             input_prompt: "",
             input_value: String::new(),
             show_input: false,
@@ -530,6 +547,22 @@ impl Tui {
                 let text = vec![Span::raw(visible_value), Span::raw("_")];
                 f.render_widget(Paragraph::new(vec![Line::from(text)]).block(block), area);
             }
+            if ui_state.show_help {
+                let block = Block::default()
+                    .title("Help")
+                    .borders(Borders::all())
+                    .border_style(Style::default().fg(Color::Cyan))
+                    .style(Style::default().fg(Color::Green));
+                let help_text = HELP_TEXT;
+                let (max_w, max_h) = help_text
+                    .lines()
+                    .fold((0, 0), |(mw, mh), line| {
+                        (mw.max(line.len()), mh+1)
+                    });
+                let area = Rect::new(1, 1, max_w as u16, max_h as u16);
+                f.render_widget(Clear, area);
+                f.render_widget(Paragraph::new(Text::raw(help_text)).block(block), area);
+            }
         })?;
         Ok(())
     }
@@ -663,6 +696,12 @@ impl Tui {
                             let mut ui_state = self.ui_state.lock().unwrap();
                             let ui_state = &mut *ui_state;
                             ui_state.tree_state.toggle_selected();
+                            StepResult::Cont
+                        }
+                        KeyCode::Char('?') |
+                        KeyCode::Char('h') => {
+                            let mut ui_state = self.ui_state.lock().unwrap();
+                            ui_state.show_help = !ui_state.show_help;
                             StepResult::Cont
                         }
                         _ => StepResult::Cont,
