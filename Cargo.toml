@@ -1,6 +1,6 @@
 [package]
 name = "rememberthemilk"
-version = "0.4.5"
+version = "0.4.6"
 authors = ["Chris Emerson <github@mail.nosreme.org>"]
 edition = "2021"
 license = "MIT"
@@ -16,19 +16,20 @@ reqwest = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-md5 = "0.7"
+md5 = "0.8"
 chrono = {version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
-confy = "0.6.0"
+confy = "1.0.0"
 atty = "0.2"
 termcolor = "1.4"
 env_logger = "0.11.0"
 log = "0.4.17"
 ratatui = { version = "0.29", optional = true }
 tui-tree-widget = { version = "0.23", optional = true }
-crossterm = { version = "0.28", optional = true, features = ["event-stream"] }
+crossterm = { version = "0.29", optional = true, features = ["event-stream"] }
 tokio-stream = "0.1.12"
 unicode-width = "0.2.0"
+console-subscriber = { version = "0.4.1", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.0", features = ["full"] }
@@ -39,6 +40,7 @@ name = "rtm"
 [features]
 default = ["tui"]
 tui = ["dep:ratatui", "dep:tui-tree-widget", "dep:crossterm"]
+console-subscriber = ["dep:console-subscriber"]
 
 [dev-dependencies]
 mockito = "1.2"

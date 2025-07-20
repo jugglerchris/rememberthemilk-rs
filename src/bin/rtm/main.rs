@@ -1,5 +1,6 @@
 #![deny(warnings)]
 use anyhow::bail;
+use log::{info, trace};
 use rememberthemilk::{Perms, API};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -143,15 +144,19 @@ impl Opt {
 }
 
 async fn get_rtm_api(perm: Perms) -> Result<API, anyhow::Error> {
+    trace!("Loading API configuration...");
     let config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
+        info!("Creating API object.");
         API::from_config(config)
     } else {
         eprintln!("Error, no API key saved.  Use `rtm auth-app` to supply them.");
         bail!("No auth key");
     };
 
+    trace!("Checking API permissions...");
     if !api.has_token(perm).await.unwrap() {
+        info!("Token doesn't have {perm:?} permission, authenticating...");
         println!("We don't have the correct permissions - trying to authenticate.");
         auth_user(&mut api, perm).await?;
     };
@@ -390,6 +395,9 @@ mod tui;
 #[tokio::main]
 async fn main() -> Result<ExitCode, anyhow::Error> {
     env_logger::init();
+
+    #[cfg(feature = "console-subscriber")]
+    console_subscriber::init();
 
     let opt = Opt::parse();
     Ok(match opt.cmd {

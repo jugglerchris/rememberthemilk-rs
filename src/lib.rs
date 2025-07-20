@@ -459,6 +459,16 @@ pub struct RTMList {
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+/// Details of a transaction step
+pub struct RTMTransaction {
+    /// The transaction id, which can be used for undoing.
+    pub id: String,
+    /// Whether this item can be undone.
+    #[serde(deserialize_with = "bool_from_string")]
+    pub undoable: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct ListContainer {
     list: Vec<RTMList>,
 }
@@ -470,14 +480,20 @@ struct ListsResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
-struct Transaction {
-    id: String,
-    undoable: String,
+struct AddTagResponse {
+    stat: Stat,
+    list: RTMLists,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
-struct AddTagResponse {
+struct UndoResponse {
     stat: Stat,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+struct MarkDoneResponse {
+    stat: Stat,
+    transaction: Option<RTMTransaction>,
     list: RTMLists,
 }
 
@@ -490,14 +506,14 @@ struct SetURLResponse {
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct AddTaskResponse {
     stat: Stat,
-    transaction: Option<Transaction>,
+    transaction: Option<RTMTransaction>,
     list: Option<RTMLists>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct SetDueDateResponse {
     stat: Stat,
-    transaction: Option<Transaction>,
+    transaction: Option<RTMTransaction>,
     list: Option<RTMLists>,
 }
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
@@ -515,6 +531,7 @@ struct TimelineResponse {
 ///
 /// This is required for API calls which can modify state.  They can also
 /// be used to undo (within a timeline) but this is not yet implemented.
+#[derive(Debug, Clone)]
 pub struct RTMTimeline(String);
 
 /// The state of an ongoing user authentication attempt.
@@ -914,6 +931,36 @@ impl API {
         }
     }
 
+    /// Undo a transaction
+    ///
+    /// Given a timeline and a transaction on that timeline, undo the operation.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn undo_transaction(&self, timeline: &RTMTimeline, transaction_id: &str) -> Result<(), Error> {
+        if let Some(ref tok) = self.token {
+            let params = &[
+                ("method", "rtm.transactions.undo"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("timeline", &timeline.0),
+                ("transaction_id", transaction_id),
+            ];
+            let response = self
+                .make_authenticated_request(&self.get_rest_url(), params)
+                .await?;
+            let rsp = from_str::<RTMResponse<UndoResponse>>(&response)?.rsp;
+            if let Stat::Ok = rsp.stat {
+                Ok(())
+            } else {
+                bail!("Error undoing: {:?}", rsp.stat)
+            }
+        } else {
+            bail!("Unable to undo")
+        }
+    }
+
+
     /// Add one or more tags to a task.
     ///
     /// * `timeline`: a timeline as retrieved using [API::get_timeline]
@@ -993,7 +1040,45 @@ impl API {
                 bail!("Error adding task")
             }
         } else {
-            bail!("Unable to fetch tasks")
+            bail!("Unable to add task")
+        }
+    }
+
+    /// Mark a task as complete
+    ///
+    /// * `timeline`: a timeline as retrieved using [API::get_timeline]
+    /// * `list`, `taskseries` and `task` identify the task to tag.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn mark_complete(
+        &self,
+        timeline: &RTMTimeline,
+        list: &RTMLists,
+        taskseries: &TaskSeries,
+        task: &Task,
+    ) -> Result<Option<RTMTransaction>, Error> {
+        if let Some(ref tok) = self.token {
+            let params = &[
+                ("method", "rtm.tasks.complete"),
+                ("format", "json"),
+                ("api_key", &self.api_key),
+                ("auth_token", &tok),
+                ("timeline", &timeline.0),
+                ("list_id", &list.id),
+                ("taskseries_id", &taskseries.id),
+                ("task_id", &task.id),
+            ];
+            let response = self
+                .make_authenticated_request(&self.get_rest_url(), params)
+                .await?;
+            let rsp = from_str::<RTMResponse<MarkDoneResponse>>(&response)?.rsp;
+            if let Stat::Ok = rsp.stat {
+                Ok(rsp.transaction)
+            } else {
+                bail!("Error completing task")
+            }
+        } else {
+            bail!("Unable to complete task")
         }
     }
 
