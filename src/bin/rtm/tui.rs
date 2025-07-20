@@ -34,6 +34,7 @@ Down/j  Move down one
 Space   Toggle selection
 ?/h     Show this help
 enter   Toggle task details
+^L      Refresh screen
 "#;
 
 
@@ -72,6 +73,7 @@ struct UiState {
     input_value: String,
     show_input: bool,
     show_help: bool,
+    refresh: bool,
     event_tx: Sender<TuiEvent>,
 }
 
@@ -198,6 +200,7 @@ impl Tui {
             input_prompt: "",
             input_value: String::new(),
             show_input: false,
+            refresh: false,
             event_tx,
         };
 
@@ -424,6 +427,12 @@ impl Tui {
 
     async fn draw(&mut self) -> Result<(), anyhow::Error> {
         let mut ui_state = self.ui_state.lock().unwrap();
+        if ui_state.refresh {
+            self.terminal.draw(move |f| {
+                f.render_widget(Clear, f.area());
+            })?;
+            ui_state.refresh = false;
+        }
         self.terminal.draw(move |f| {
             let size = f.area();
             let block = Block::default()
@@ -453,12 +462,15 @@ impl Tui {
                     .style(Style::default().bg(Color::Black));
                 let tree_pos = ui_state.tree_state.selected();
                 let series = match ui_state.display_mode {
-                    DisplayMode::Tasks => Some(
-                        RtmTaskListIterator::new(&ui_state.tasks)
-                            .nth(*tree_pos.last().unwrap())
-                            .unwrap()
-                            .1,
-                    ),
+                    DisplayMode::Tasks =>
+                        tree_pos
+                            .last()
+                            .map(|pos| {
+                                RtmTaskListIterator::new(&ui_state.tasks)
+                                    .nth(*pos)
+                                    .unwrap()
+                                    .1
+                            }),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
                             Some(
@@ -653,94 +665,101 @@ impl Tui {
                 Err(e) => {
                     return Err(e.into());
                 }
-                Ok(ev) => match ev {
-                    Event::Key(key) => match key.code {
-                        KeyCode::Char('q') => StepResult::End,
-                        KeyCode::Char('g') => {
-                            let cur_filt = self.ui_state.lock().unwrap().filter.clone();
-                            let filter = self.input("Enter RTM filter:", &cur_filt).await?;
-                            if !filter.is_empty() {
-                                self.ui_state.lock().unwrap().filter = filter;
-                                self.update_tasks().await?;
-                            }
-                            StepResult::Cont
-                        }
-                        KeyCode::Char('A') => {
-                            let task_desc = self.input("Enter new task:", "").await?;
-                            if !task_desc.is_empty() {
-                                let timeline = self.get_timeline().await?;
-                                let _added = self
-                                    .api
-                                    .add_task(&timeline, &task_desc, None, None, None, true)
-                                    .await?;
-                                self.update_tasks().await?;
-                            }
-                            StepResult::Cont
-                        }
-                        KeyCode::Char('L') => {
-                            self.update_lists().await?;
-                            StepResult::Cont
-                        }
-                        KeyCode::Enter => {
-                            let mut ui_state = self.ui_state.lock().unwrap();
-                            match ui_state.display_mode {
-                                DisplayMode::Tasks => {
-                                    ui_state.show_task = !ui_state.show_task;
-                                }
-                                DisplayMode::Lists => {
-                                    ui_state.show_task = !ui_state.show_task;
-                                }
-                            }
-                            StepResult::Cont
-                        }
-                        KeyCode::Char('C') => {
-                            let display_mode = self.ui_state.lock().unwrap().display_mode;
-                            match display_mode {
-                                DisplayMode::Tasks => {
-                                    info!("Marking task as complete");
-                                    self.for_each_selected(
-                                        async |api, tl, list, ts, task| {
-                                            api.mark_complete(
-                                                tl, list, ts, task).await
-                                        }).await?;
-                                    info!("Marked as complete!");
+                Ok(ev) => {
+                    use crossterm::event::KeyModifiers;
+                    match ev {
+                        Event::Key(key) => match (key.code, key.modifiers) {
+                            (KeyCode::Char('q'), KeyModifiers::NONE) => StepResult::End,
+                            (KeyCode::Char('g'), KeyModifiers::NONE) => {
+                                let cur_filt = self.ui_state.lock().unwrap().filter.clone();
+                                let filter = self.input("Enter RTM filter:", &cur_filt).await?;
+                                if !filter.is_empty() {
+                                    self.ui_state.lock().unwrap().filter = filter;
                                     self.update_tasks().await?;
                                 }
-                                DisplayMode::Lists => { }
+                                StepResult::Cont
                             }
-                            StepResult::Cont
-                        }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            let mut ui_state = self.ui_state.lock().unwrap();
-                            let ui_state = &mut *ui_state;
-                            ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
-                            ui_state.tree_state.key_up();
-                            StepResult::Cont
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            let mut ui_state = self.ui_state.lock().unwrap();
-                            let ui_state = &mut *ui_state;
-                            if ui_state.list_pos + 1 < ui_state.tree_items.len() {
-                                ui_state.list_pos += 1;
+                            (KeyCode::Char('A'), KeyModifiers::SHIFT) => {
+                                let task_desc = self.input("Enter new task:", "").await?;
+                                if !task_desc.is_empty() {
+                                    let timeline = self.get_timeline().await?;
+                                    let _added = self
+                                        .api
+                                        .add_task(&timeline, &task_desc, None, None, None, true)
+                                        .await?;
+                                    self.update_tasks().await?;
+                                }
+                                StepResult::Cont
                             }
-                            ui_state.tree_state.key_down();
-                            StepResult::Cont
-                        }
-                        KeyCode::Char(' ') => {
-                            let mut ui_state = self.ui_state.lock().unwrap();
-                            let ui_state = &mut *ui_state;
-                            ui_state.tree_state.toggle_selected();
-                            StepResult::Cont
-                        }
-                        KeyCode::Char('?') |
-                        KeyCode::Char('h') => {
-                            let mut ui_state = self.ui_state.lock().unwrap();
-                            ui_state.show_help = !ui_state.show_help;
-                            StepResult::Cont
-                        }
+                            (KeyCode::Char('L'), KeyModifiers::SHIFT) => {
+                                self.update_lists().await?;
+                                StepResult::Cont
+                            }
+                            (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                                self.ui_state.lock().unwrap().refresh = true;
+                                StepResult::Cont
+                            }
+                            (KeyCode::Enter, KeyModifiers::NONE) => {
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                match ui_state.display_mode {
+                                    DisplayMode::Tasks => {
+                                        ui_state.show_task = !ui_state.show_task;
+                                    }
+                                    DisplayMode::Lists => {
+                                        ui_state.show_task = !ui_state.show_task;
+                                    }
+                                }
+                                StepResult::Cont
+                            }
+                            (KeyCode::Char('C'), KeyModifiers::SHIFT) => {
+                                let display_mode = self.ui_state.lock().unwrap().display_mode;
+                                match display_mode {
+                                    DisplayMode::Tasks => {
+                                        info!("Marking task as complete");
+                                        self.for_each_selected(
+                                            async |api, tl, list, ts, task| {
+                                                api.mark_complete(
+                                                    tl, list, ts, task).await
+                                            }).await?;
+                                        info!("Marked as complete!");
+                                        self.update_tasks().await?;
+                                    }
+                                    DisplayMode::Lists => { }
+                                }
+                                StepResult::Cont
+                            }
+                            (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                let ui_state = &mut *ui_state;
+                                ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
+                                ui_state.tree_state.key_up();
+                                StepResult::Cont
+                            }
+                            (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                let ui_state = &mut *ui_state;
+                                if ui_state.list_pos + 1 < ui_state.tree_items.len() {
+                                    ui_state.list_pos += 1;
+                                }
+                                ui_state.tree_state.key_down();
+                                StepResult::Cont
+                            }
+                            (KeyCode::Char(' '), KeyModifiers::NONE) => {
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                let ui_state = &mut *ui_state;
+                                ui_state.tree_state.toggle_selected();
+                                StepResult::Cont
+                            }
+                            (KeyCode::Char('?'), KeyModifiers::SHIFT|KeyModifiers::NONE) |
+                            (KeyCode::Char('h'), KeyModifiers::NONE) => {
+                                    let mut ui_state = self.ui_state.lock().unwrap();
+                                    ui_state.show_help = !ui_state.show_help;
+                                    StepResult::Cont
+                                }
+                            _ => StepResult::Cont,
+                        },
                         _ => StepResult::Cont,
-                    },
-                    _ => StepResult::Cont,
+                    }
                 },
             },
             Some(TuiEvent::StateChanged) => {
