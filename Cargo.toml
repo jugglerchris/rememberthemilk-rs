@@ -1,6 +1,6 @@
 [package]
 name = "rememberthemilk"
-version = "0.4.6"
+version = "0.4.7"
 authors = ["Chris Emerson <github@mail.nosreme.org>"]
 edition = "2021"
 license = "MIT"
@@ -20,7 +20,6 @@ md5 = "0.8"
 chrono = {version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
 confy = "1.0.0"
-atty = "0.2"
 termcolor = "1.4"
 env_logger = "0.11.0"
 log = "0.4.17"

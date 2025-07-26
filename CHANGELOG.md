@@ -9,6 +9,10 @@ Possible log types:
 - `[fixed]` for any bug fixes.
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 
+### 0.4.7
+
+- [fixed] Remove unused `atty` dependency
+
 ### 0.4.6
 
 - [added] ?/h in TUI to show keys.
