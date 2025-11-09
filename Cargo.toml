@@ -1,6 +1,6 @@
 [package]
 name = "rememberthemilk"
-version = "0.4.7"
+version = "0.4.8"
 authors = ["Chris Emerson <github@mail.nosreme.org>"]
 edition = "2021"
 license = "MIT"
