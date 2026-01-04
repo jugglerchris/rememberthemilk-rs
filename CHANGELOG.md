@@ -9,6 +9,10 @@ Possible log types:
 - `[fixed]` for any bug fixes.
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 
+### 0.4.9
+
+- [changed] Updated reqwest to 0.13 and bumped other dependencies.
+
 ### 0.4.8
 
 - [changed] Updated some more dependencies.
