@@ -1,24 +1,21 @@
 use anyhow::bail;
-use confy;
 use rememberthemilk::{Perms, API};
 use std::env;
 
-const RTM_AUTH_APP_NAME: &'static str = "rtm_auth_example";
-const RTM_AUTH_EX_ID: &'static str = "config";
+const RTM_AUTH_APP_NAME: &str = "rtm_auth_example";
+const RTM_AUTH_EX_ID: &str = "config";
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let config: rememberthemilk::RTMConfig = confy::load(RTM_AUTH_APP_NAME, Some(RTM_AUTH_EX_ID))?;
     let mut api = if config.api_key.is_some() && config.api_secret.is_some() {
-        let api = API::from_config(config);
-        api
+        API::from_config(config)
     } else {
         let args: Vec<String> = env::args().collect();
         let api_key = args[1].clone();
         let api_secret = args[2].clone();
 
-        let api = API::new(api_key, api_secret);
-        api
+        API::new(api_key, api_secret)
     };
 
     if !api.has_token(Perms::Read).await.unwrap() {

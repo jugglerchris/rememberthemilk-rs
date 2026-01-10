@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::process::ExitCode;
 
-const RTM_APP_NAME: &'static str = "rtm";
-const RTM_AUTH_ID: &'static str = "rtm_auth";
-const RTM_SETTINGS: &'static str = "config";
+const RTM_APP_NAME: &str = "rtm";
+const RTM_AUTH_ID: &str = "rtm_auth";
+const RTM_SETTINGS: &str = "config";
 
 #[derive(Serialize, Deserialize)]
 /// rtm tool user configuration.
@@ -279,7 +279,7 @@ async fn list_tasks(
                 }
                 write!(stdout, "  {}", ts.name)?;
                 stdout.set_color(ColorSpec::new().set_bg(Some(Color::Black)))?;
-                writeln!(stdout, "")?;
+                writeln!(stdout)?;
                 if opts.verbose {
                     writeln!(stdout, "   id: {}", ts.id)?;
                     writeln!(stdout, "   created: {}", ts.created)?;
@@ -342,7 +342,7 @@ async fn add_tag(filter: String, tag: String) -> Result<ExitCode, anyhow::Error>
                 let to_tag = !ts.tags.contains(&tag);
                 if to_tag {
                     println!("  Adding tag to {}...", ts.name);
-                    api.add_tag(&timeline, &list, &ts, &ts.task[0], &[&tag[..]])
+                    api.add_tag(&timeline, &list, ts, &ts.task[0], &[&tag[..]])
                         .await?;
                 }
             }
@@ -360,11 +360,11 @@ async fn add_task(
     let timeline = api.get_timeline().await?;
 
     let added = api
-        .add_task(&timeline, &name, None, None, external_id, opt.smart)
+        .add_task(&timeline, name, None, None, external_id, opt.smart)
         .await?;
     if let Some(list) = added {
         if let Some(taskseries) = list.taskseries {
-            if taskseries.len() > 0 {
+            if !taskseries.is_empty() {
                 print_taskseries(&taskseries[0]);
             } else {
                 println!("Successful result, but no task in series.")
@@ -410,7 +410,7 @@ async fn main() -> Result<ExitCode, anyhow::Error> {
         Command::AddTask {
             ref name,
             ref external_id,
-        } => add_task(&opt, &name, external_id.as_deref()).await?,
+        } => add_task(&opt, name, external_id.as_deref()).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,

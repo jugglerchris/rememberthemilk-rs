@@ -126,13 +126,13 @@ pub enum Perms {
 impl Perms {
     /// Return true if this permission includes the rights to do `other`.
     fn includes(self, other: Perms) -> bool {
-        match (self, other) {
+        matches!(
+            (self, other),
             (Self::Delete, _)
-            | (Self::Write, Self::Read)
-            | (Self::Write, Self::Write)
-            | (Self::Read, Self::Read) => true,
-            _ => false,
-        }
+                | (Self::Write, Self::Read)
+                | (Self::Write, Self::Write)
+                | (Self::Read, Self::Read)
+        )
     }
 
     /// Return a string representation suitable for the RTM API
@@ -145,9 +145,9 @@ impl Perms {
     }
 }
 
-impl ToString for Perms {
-    fn to_string(&self) -> String {
-        self.as_str().to_string()
+impl std::fmt::Display for Perms {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -408,7 +408,7 @@ impl Task {
             if !self.has_due_time {
                 // If no due time, assume it's due at the end of the day,
                 // or the start of the next day.
-                due = due + Duration::days(1);
+                due += Duration::days(1);
             }
             let time_left = due.signed_duration_since(chrono::Utc::now());
             let seconds = time_left.num_seconds();
@@ -625,7 +625,7 @@ impl API {
         let mut my_keys = keys.iter().collect::<Vec<&(&str, &str)>>();
         my_keys.sort();
         let mut to_sign = self.api_secret.clone();
-        for &(ref k, ref v) in my_keys {
+        for (k, v) in my_keys {
             to_sign += k;
             to_sign += v;
         }
@@ -635,13 +635,13 @@ impl API {
 
     fn make_authenticated_url(&self, url: &str, keys: &[(&str, &str)]) -> String {
         let mut url = url.to_string();
-        let auth_string = self.sign_keys(&keys);
+        let auth_string = self.sign_keys(keys);
         url.push('?');
         for (k, v) in keys {
             // Todo: URL: encode - maybe reqwest can help?
-            url += &k;
+            url += k;
             url.push('=');
-            url += &v;
+            url += v;
             url.push('&');
         }
         url += "api_sig=";
@@ -654,7 +654,7 @@ impl API {
         url: &'a str,
         keys: &'a [(&'a str, &'a str)],
     ) -> Result<String, anyhow::Error> {
-        let auth_string = self.sign_keys(&keys);
+        let auth_string = self.sign_keys(keys);
         let client = reqwest::Client::new();
         log::trace!("make_authenticated_request: keys={:?}", keys);
         let req = client
@@ -775,7 +775,7 @@ impl API {
                         ("method", "rtm.auth.checkToken"),
                         ("format", "json"),
                         ("api_key", &self.api_key),
-                        ("auth_token", &tok),
+                        ("auth_token", tok),
                     ],
                 )
                 .await?;
@@ -813,10 +813,10 @@ impl API {
                 ("method", "rtm.tasks.getList"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
                 ("v", "2"),
             ];
-            if filter != "" {
+            if !filter.is_empty() {
                 params.push(("filter", filter));
             }
             let response = self
@@ -858,11 +858,11 @@ impl API {
                 ("method", "rtm.tasks.getList"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
                 ("v", "2"),
                 ("list_id", list_id),
             ];
-            if filter != "" {
+            if !filter.is_empty() {
                 params.push(("filter", filter));
             }
             let response = self
@@ -888,7 +888,7 @@ impl API {
                 ("method", "rtm.lists.getList"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
             ];
             let response = self
                 .make_authenticated_request(&self.get_rest_url(), params)
@@ -915,7 +915,7 @@ impl API {
                 ("method", "rtm.timelines.create"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
             ];
             let response = self
                 .make_authenticated_request(&self.get_rest_url(), params)
@@ -946,7 +946,7 @@ impl API {
                 ("method", "rtm.transactions.undo"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
                 ("timeline", &timeline.0),
                 ("transaction_id", transaction_id),
             ];
@@ -984,12 +984,12 @@ impl API {
                 ("method", "rtm.tasks.setURL"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
                 ("timeline", &timeline.0),
                 ("list_id", &list.id),
                 ("taskseries_id", &taskseries.id),
                 ("task_id", &task.id),
-                ("url", &url),
+                ("url", url),
             ];
             let response = self
                 .make_authenticated_request(&self.get_rest_url(), params)
@@ -1026,7 +1026,7 @@ impl API {
                 ("method", "rtm.tasks.addTags"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
                 ("timeline", &timeline.0),
                 ("list_id", &list.id),
                 ("taskseries_id", &taskseries.id),
@@ -1065,7 +1065,7 @@ impl API {
                 ("method", "rtm.tasks.complete"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
                 ("timeline", &timeline.0),
                 ("list_id", &list.id),
                 ("taskseries_id", &taskseries.id),
@@ -1108,7 +1108,7 @@ impl API {
                 ("method", "rtm.tasks.add"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
                 ("timeline", &timeline.0),
                 ("name", name),
             ];
@@ -1119,7 +1119,7 @@ impl API {
                 params.push(("task_id", &parent.id));
             }
             if let Some(external_id) = external_id {
-                params.push(("external_id", &external_id));
+                params.push(("external_id", external_id));
             }
             if smart {
                 params.push(("parse", "1"));
@@ -1132,7 +1132,7 @@ impl API {
             if let Stat::Ok = rsp.stat {
                 if let Some(list) = rsp.list {
                     if let Some(series) = &list.taskseries {
-                        if series.len() >= 1 {
+                        if !series.is_empty() {
                             Ok(Some(list))
                         } else {
                             Ok(None)
@@ -1165,7 +1165,7 @@ impl API {
                 ("method", "rtm.tasks.setDueDate"),
                 ("format", "json"),
                 ("api_key", &self.api_key),
-                ("auth_token", &tok),
+                ("auth_token", tok),
                 ("timeline", &timeline.0),
                 ("list_id", &list.id),
                 ("taskseries_id", &taskseries.id),
@@ -1184,7 +1184,7 @@ impl API {
             if let Stat::Ok = rsp.stat {
                 if let Some(list) = rsp.list {
                     if let Some(mut series) = list.taskseries {
-                        if series.len() >= 1 {
+                        if !series.is_empty() {
                             Ok(Some(series.pop().unwrap()))
                         } else {
                             Ok(None)

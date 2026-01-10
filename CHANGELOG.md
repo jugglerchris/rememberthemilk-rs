@@ -12,6 +12,7 @@ Possible log types:
 ### 0.4.10
 
 - [changed] Update ratatui to 0.30 and rui-tree-widget to 0.24.
+- [fixed] Fix the CI, and some format/clippy fixes.
 
 ### 0.4.9
 
