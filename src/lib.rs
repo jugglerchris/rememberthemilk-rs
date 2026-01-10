@@ -517,6 +517,16 @@ struct SetDueDateResponse {
     list: Option<RTMLists>,
 }
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+struct GetMethodsPayload {
+    method: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+struct GetMethodsResponse {
+    stat: Stat,
+    methods: GetMethodsPayload,
+}
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct RTMResponse<T> {
     rsp: T,
 }
@@ -903,6 +913,7 @@ impl API {
             bail!("Unable to fetch tasks")
         }
     }
+
     /// Request a fresh remember timeline.
     ///
     /// A timeline is required for any request which modifies data on the
@@ -1201,6 +1212,21 @@ impl API {
         } else {
             bail!("Unable to fetch tasks")
         }
+    }
+
+    /// Return a list of methods.
+    pub async fn get_methods(&self) -> Result<Vec<String>, Error> {
+        let params = vec![
+            ("method", "rtm.reflection.getMethods"),
+            ("format", "json"),
+            ("api_key", &self.api_key),
+        ];
+        let response = self
+            .make_authenticated_request(&self.get_rest_url(), &params)
+            .await?;
+        log::trace!("Set due date response: {}", response);
+        let rsp = from_str::<RTMResponse<GetMethodsResponse>>(&response)?.rsp;
+        Ok(rsp.methods.method)
     }
 }
 

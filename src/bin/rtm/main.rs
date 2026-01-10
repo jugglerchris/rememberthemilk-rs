@@ -89,6 +89,8 @@ enum Command {
         #[clap(default_value = "read", long)]
         perm: Perms,
     },
+    /// List all methods using reflection
+    Methods,
     #[cfg(feature = "tui")]
     /// Run the TUI
     Tui,
@@ -193,6 +195,15 @@ async fn logout() -> Result<ExitCode, anyhow::Error> {
     let mut config: rememberthemilk::RTMConfig = confy::load(RTM_APP_NAME, Some(RTM_AUTH_ID))?;
     config.clear_user_data();
     confy::store(RTM_APP_NAME, Some(RTM_AUTH_ID), config)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+async fn get_methods(_opts: &Opt) -> Result<ExitCode, anyhow::Error> {
+    let api = get_rtm_api(Perms::Read).await?;
+    let methods = api.get_methods().await?;
+    for method in methods {
+        println!("{method}");
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -412,6 +423,7 @@ async fn main() -> Result<ExitCode, anyhow::Error> {
             ref external_id,
         } => add_task(&opt, name, external_id.as_deref()).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
+        Command::Methods => get_methods(&opt).await?,
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,
         Command::Logout => logout().await?,
