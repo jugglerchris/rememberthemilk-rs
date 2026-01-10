@@ -9,6 +9,10 @@ Possible log types:
 - `[fixed]` for any bug fixes.
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 
+### 0.4.10
+
+- [changed] Update ratatui to 0.30 and rui-tree-widget to 0.24.
+
 ### 0.4.9
 
 - [changed] Updated reqwest to 0.13 and bumped other dependencies.
