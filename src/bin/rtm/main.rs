@@ -1,12 +1,12 @@
 #![deny(warnings)]
 use anyhow::bail;
+use clap::Parser;
 use log::{info, trace};
 use rememberthemilk::{Perms, API};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 use std::process::ExitCode;
-use clap::Parser;
 
 const RTM_APP_NAME: &'static str = "rtm";
 const RTM_AUTH_ID: &'static str = "rtm_auth";

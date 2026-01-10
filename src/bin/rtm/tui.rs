@@ -37,7 +37,6 @@ enter   Toggle task details
 ^L      Refresh screen
 "#;
 
-
 #[derive(Copy, Clone)]
 enum DisplayMode {
     Tasks,
@@ -76,7 +75,6 @@ struct UiState {
     refresh: bool,
     event_tx: Sender<TuiEvent>,
 }
-
 
 struct RtmTaskListIterator<'t> {
     tasks: &'t RTMTasks,
@@ -464,15 +462,12 @@ impl Tui {
                     .style(Style::default().bg(Color::Black));
                 let tree_pos = ui_state.tree_state.selected();
                 let series = match ui_state.display_mode {
-                    DisplayMode::Tasks =>
-                        tree_pos
-                            .last()
-                            .map(|pos| {
-                                RtmTaskListIterator::new(&ui_state.tasks)
-                                    .nth(*pos)
-                                    .unwrap()
-                                    .1
-                            }),
+                    DisplayMode::Tasks => tree_pos.last().map(|pos| {
+                        RtmTaskListIterator::new(&ui_state.tasks)
+                            .nth(*pos)
+                            .unwrap()
+                            .1
+                    }),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
                             Some(
@@ -587,9 +582,7 @@ impl Tui {
                 let help_text = HELP_TEXT;
                 let (max_w, max_h) = help_text
                     .lines()
-                    .fold((0, 0), |(mw, mh), line| {
-                        (mw.max(line.len()), mh+1)
-                    });
+                    .fold((0, 0), |(mw, mh), line| (mw.max(line.len()), mh + 1));
                 let area = Rect::new(1, 1, max_w as u16 + 2, max_h as u16 + 2);
                 f.render_widget(Clear, area);
                 f.render_widget(Paragraph::new(Text::raw(help_text)).block(block), area);
@@ -718,24 +711,26 @@ impl Tui {
                                 match display_mode {
                                     DisplayMode::Tasks => {
                                         info!("Marking task as complete");
-                                        self.for_each_selected(
-                                            async |api, tl, list, ts, task| {
-                                                let resp = api.mark_complete(
-                                                    tl, list, ts, task).await?;
-                                                if let Some(transaction) = resp {
-                                                    if transaction.undoable && !transaction.id.is_empty() {
-                                                        Ok(Some(transaction.id))
-                                                    } else {
-                                                        Ok(None)
-                                                    }
+                                        self.for_each_selected(async |api, tl, list, ts, task| {
+                                            let resp =
+                                                api.mark_complete(tl, list, ts, task).await?;
+                                            if let Some(transaction) = resp {
+                                                if transaction.undoable
+                                                    && !transaction.id.is_empty()
+                                                {
+                                                    Ok(Some(transaction.id))
                                                 } else {
                                                     Ok(None)
                                                 }
-                                            }).await?;
+                                            } else {
+                                                Ok(None)
+                                            }
+                                        })
+                                        .await?;
                                         info!("Marked as complete!");
                                         self.update_tasks().await?;
                                     }
-                                    DisplayMode::Lists => { }
+                                    DisplayMode::Lists => {}
                                 }
                                 StepResult::Cont
                             }
@@ -766,17 +761,17 @@ impl Tui {
                                 ui_state.tree_state.toggle_selected();
                                 StepResult::Cont
                             }
-                            (KeyCode::Char('?'), KeyModifiers::SHIFT|KeyModifiers::NONE) |
-                            (KeyCode::Char('h'), KeyModifiers::NONE) => {
-                                    let mut ui_state = self.ui_state.lock().unwrap();
-                                    ui_state.show_help = !ui_state.show_help;
-                                    StepResult::Cont
-                                }
+                            (KeyCode::Char('?'), KeyModifiers::SHIFT | KeyModifiers::NONE)
+                            | (KeyCode::Char('h'), KeyModifiers::NONE) => {
+                                let mut ui_state = self.ui_state.lock().unwrap();
+                                ui_state.show_help = !ui_state.show_help;
+                                StepResult::Cont
+                            }
                             _ => StepResult::Cont,
                         },
                         _ => StepResult::Cont,
                     }
-                },
+                }
             },
             Some(TuiEvent::StateChanged) => {
                 let display_mode = self.ui_state.lock().unwrap().display_mode;
@@ -804,9 +799,7 @@ impl Tui {
 
     async fn get_timeline(&mut self) -> Result<RTMTimeline, anyhow::Error> {
         if self.current_timeline.is_none() {
-            self.current_timeline = Some(
-                self.api.get_timeline().await?
-            );
+            self.current_timeline = Some(self.api.get_timeline().await?);
             self.transactions.clear();
         }
         Ok(self.current_timeline.as_ref().unwrap().clone())
@@ -814,7 +807,14 @@ impl Tui {
 
     // The callback returns an optional transaction id for undo.
     async fn for_each_selected<F>(&mut self, f: F) -> Result<(), anyhow::Error>
-        where F: AsyncFn(&API, &RTMTimeline, &RTMLists, &TaskSeries, &Task) -> Result<Option<String>, anyhow::Error>
+    where
+        F: AsyncFn(
+            &API,
+            &RTMTimeline,
+            &RTMLists,
+            &TaskSeries,
+            &Task,
+        ) -> Result<Option<String>, anyhow::Error>,
     {
         let timeline = self.get_timeline().await?;
 

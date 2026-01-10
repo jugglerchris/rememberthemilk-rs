@@ -936,7 +936,11 @@ impl API {
     /// Given a timeline and a transaction on that timeline, undo the operation.
     ///
     /// Requires a valid user authentication token.
-    pub async fn undo_transaction(&self, timeline: &RTMTimeline, transaction_id: &str) -> Result<(), Error> {
+    pub async fn undo_transaction(
+        &self,
+        timeline: &RTMTimeline,
+        transaction_id: &str,
+    ) -> Result<(), Error> {
         if let Some(ref tok) = self.token {
             let params = &[
                 ("method", "rtm.transactions.undo"),
@@ -959,7 +963,6 @@ impl API {
             bail!("Unable to undo")
         }
     }
-
 
     /// Add one or more tags to a task.
     ///
