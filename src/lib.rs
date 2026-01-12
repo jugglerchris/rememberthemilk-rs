@@ -58,6 +58,9 @@ use chrono::{DateTime, Duration, NaiveTime, Utc};
 use serde::{de::Unexpected, Deserialize, Serialize};
 use serde_json::from_str;
 
+#[cfg(feature = "cache")]
+pub mod cache;
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "err")]
 /// Error type for Remember the Milk API calls.
@@ -807,7 +810,7 @@ impl API {
         self.get_tasks_filtered("").await
     }
 
-    /// Retrieve a filtered list of tasks.
+    /// Retrieve a filtered list of tasks, optionally only changes since the last sync date.
     ///
     /// The `filter` is a string in the [format used by
     /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
@@ -816,8 +819,10 @@ impl API {
     ///
     /// `"status:incomplete AND (dueBefore:today OR due:today)"`
     ///
+    /// `last_sync`, if specified, will get only changed tasks since that date.
+    ///
     /// Requires a valid user authentication token.
-    pub async fn get_tasks_filtered(&self, filter: &str) -> Result<RTMTasks, Error> {
+    pub async fn get_tasks_filtered_sync(&self, filter: &str, last_sync: Option<chrono::DateTime<Utc>>) -> Result<RTMTasks, Error> {
         if let Some(ref tok) = self.token {
             let mut params = vec![
                 ("method", "rtm.tasks.getList"),
@@ -828,6 +833,11 @@ impl API {
             ];
             if !filter.is_empty() {
                 params.push(("filter", filter));
+            }
+            let ls_str;
+            if let Some(ls) = last_sync {
+                ls_str = ls.to_rfc3339();
+                params.push(("last_sync", &ls_str));
             }
             let response = self
                 .make_authenticated_request(&self.get_rest_url(), &params)
@@ -841,6 +851,20 @@ impl API {
         } else {
             bail!("Unable to fetch tasks")
         }
+    }
+
+    /// Retrieve a filtered list of tasks.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn get_tasks_filtered(&self, filter: &str) -> Result<RTMTasks, Error> {
+        self.get_tasks_filtered_sync(filter, None).await
     }
 
     /// Return a filter string which can be used to search for external id

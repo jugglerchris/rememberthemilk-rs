@@ -1,6 +1,7 @@
 #![deny(warnings)]
 use anyhow::bail;
 use clap::Parser;
+use etcetera::{AppStrategy, AppStrategyArgs};
 use log::{info, trace};
 use rememberthemilk::{Perms, API};
 use serde::{Deserialize, Serialize};
@@ -91,6 +92,9 @@ enum Command {
     },
     /// List all methods using reflection
     Methods,
+    #[cfg(feature = "cache")]
+    /// Synchronize the local db
+    Sync,
     #[cfg(feature = "tui")]
     /// Run the TUI
     Tui,
@@ -400,6 +404,27 @@ fn print_taskseries(task: &rememberthemilk::TaskSeries) {
     }
 }
 
+#[cfg(feature = "cache")]
+async fn run_sync(_opt: &Opt) -> Result<ExitCode, anyhow::Error> {
+    use rememberthemilk::cache::TaskCache;
+
+    let strategy = etcetera::choose_app_strategy(AppStrategyArgs {
+        top_level_domain: "org".into(),
+        author: "Chris Emerson".into(),
+        app_name: "rtm".into(),
+    }).unwrap();
+
+    let cache_dir = strategy.cache_dir();
+    std::fs::create_dir_all(&cache_dir)?;
+
+    let db_path = strategy.in_cache_dir("sync.sqlite");
+    let api = get_rtm_api(Perms::Read).await?;
+    let cache = TaskCache::new(&db_path, api).await?;
+
+    cache.sync().await?;
+    Ok(ExitCode::SUCCESS)
+}
+
 #[cfg(feature = "tui")]
 mod tui;
 
@@ -424,6 +449,8 @@ async fn main() -> Result<ExitCode, anyhow::Error> {
         } => add_task(&opt, name, external_id.as_deref()).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
         Command::Methods => get_methods(&opt).await?,
+        #[cfg(feature = "cache")]
+        Command::Sync => run_sync(&opt).await?,
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,
         Command::Logout => logout().await?,
