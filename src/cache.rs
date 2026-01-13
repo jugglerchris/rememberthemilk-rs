@@ -4,6 +4,7 @@ use std::path::Path;
 
 use chrono::Utc;
 use sqlx::{migrate::{MigrateDatabase as _, MigrateError}, Sqlite, SqlitePool};
+type JsonValue = serde_json::Value;
 
 use crate::API;
 
@@ -22,6 +23,9 @@ pub enum CacheError {
     /// Other error
     #[error("Other error")]
     OtherError(#[from] anyhow::Error),
+    /// Error parsing response
+    #[error("Error parsing RTM response")]
+    ParseError(&'static str),
 }
 
 /// Task cache result type.
@@ -67,14 +71,47 @@ impl TaskCache {
 
         eprintln!("last_sync: {last_sync:?}");
         let new_last_sync = Utc::now();
-        let tasks = self.api.get_tasks_filtered_sync("", last_sync).await?;
-        let count = tasks.list.iter()
-            .map(|l| match l.taskseries.as_ref() {
-                None => 0,
-                Some(l) => l.len(),
-            })
-            .sum::<usize>();
-        eprintln!("Got {count} tasks");
+        let mut tasks = self.api.get_tasks_filtered_sync_json("", last_sync).await?;
+        //dbg!(&tasks);
+
+        let lists = tasks.get_mut("list");
+        if let Some(JsonValue::Array(values)) = lists {
+            for list in values {
+                let list_id = list.get("id").unwrap().as_str().unwrap().to_string();
+                if let Some(JsonValue::Array(taskseries)) = list.get_mut("taskseries") {
+                    for ts in taskseries {
+                        let taskseries_id = ts.get("id").unwrap().as_str().unwrap().to_string();
+                        // Extract the task to put it into the separate table.
+                        let task = ts.get_mut("task").map(|t| t.take());
+                        sqlx::query(
+                            "INSERT INTO taskseries(list_id, taskseries_id, data)
+                            VALUES(?, ?, ?)
+                        ")
+                            .bind(&list_id)
+                            .bind(&taskseries_id)
+                            .bind(ts.to_string())
+                            .execute(&self.pool)
+                            .await?;
+
+                        if let Some(JsonValue::Array(tasks)) = task {
+                            for t in tasks {
+                                let task_id = t.get("id").unwrap().as_str().unwrap();
+                                sqlx::query(
+                                    "INSERT INTO tasks(list_id, taskseries_id, task_id, data)
+                                    VALUES(?, ?, ?, ?)
+                                ")
+                                    .bind(&list_id)
+                                    .bind(&taskseries_id)
+                                    .bind(task_id)
+                                    .bind(ts.to_string())
+                                    .execute(&self.pool)
+                                    .await?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         sqlx::query(
             "INSERT INTO task_meta(id, last_sync)

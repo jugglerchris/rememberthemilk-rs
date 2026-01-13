@@ -55,8 +55,8 @@
 //! ```
 use anyhow::{bail, Error};
 use chrono::{DateTime, Duration, NaiveTime, Utc};
-use serde::{de::Unexpected, Deserialize, Serialize};
-use serde_json::from_str;
+use serde::{de::Unexpected, Deserialize, de::DeserializeOwned, Serialize};
+use serde_json::{from_str, from_reader};
 
 #[cfg(feature = "cache")]
 pub mod cache;
@@ -810,19 +810,9 @@ impl API {
         self.get_tasks_filtered("").await
     }
 
-    /// Retrieve a filtered list of tasks, optionally only changes since the last sync date.
-    ///
-    /// The `filter` is a string in the [format used by
-    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
-    /// for example to retrieve tasks which have not yet been completed and
-    /// are due today or in the past, you could use:
-    ///
-    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
-    ///
-    /// `last_sync`, if specified, will get only changed tasks since that date.
-    ///
-    /// Requires a valid user authentication token.
-    pub async fn get_tasks_filtered_sync(&self, filter: &str, last_sync: Option<chrono::DateTime<Utc>>) -> Result<RTMTasks, Error> {
+    async fn get_tasks_filtered_sync_typed<T>(&self, filter: &str, last_sync: Option<chrono::DateTime<Utc>>) -> Result<T, Error>
+    where T: DeserializeOwned
+    {
         if let Some(ref tok) = self.token {
             let mut params = vec![
                 ("method", "rtm.tasks.getList"),
@@ -842,17 +832,51 @@ impl API {
             let response = self
                 .make_authenticated_request(&self.get_rest_url(), &params)
                 .await?;
-            // TODO: handle failure
-            let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
-                .unwrap()
-                .rsp
-                .tasks;
-            Ok(tasklist)
+            Ok(from_reader::<_, T>(response.as_bytes())?)
         } else {
             bail!("Unable to fetch tasks")
         }
     }
 
+    /// Retrieve a filtered list of tasks, optionally only changes since the last sync date.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// `last_sync`, if specified, will get only changed tasks since that date.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn get_tasks_filtered_sync(&self, filter: &str, last_sync: Option<chrono::DateTime<Utc>>) -> Result<RTMTasks, Error> {
+        Ok(self.get_tasks_filtered_sync_typed::<RTMResponse<TasksResponse>>(filter, last_sync).await?
+            .rsp
+            .tasks)
+    }
+
+    /// Retrieve a filtered list of tasks, optionally only changes since the last sync date,
+    /// as a JSON object.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// `last_sync`, if specified, will get only changed tasks since that date.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn get_tasks_filtered_sync_json(&self, filter: &str, last_sync: Option<chrono::DateTime<Utc>>) -> Result<serde_json::Value, Error> {
+        Ok(self.get_tasks_filtered_sync_typed::<serde_json::Value>(filter, last_sync).await?
+            .get_mut("rsp")
+            .ok_or_else(|| anyhow::anyhow!("Response did not have rsp field"))?
+            .get_mut("tasks")
+            .ok_or_else(|| anyhow::anyhow!("Response did not have task field"))?
+            .take())
+    }
     /// Retrieve a filtered list of tasks.
     ///
     /// The `filter` is a string in the [format used by
