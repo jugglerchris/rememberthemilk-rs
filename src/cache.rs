@@ -1,6 +1,6 @@
 //! Local caching of Remember The Milk entries.
 
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 use chrono::Utc;
 use sqlx::{migrate::{MigrateDatabase as _, MigrateError}, Sqlite, SqlitePool};
@@ -69,11 +69,12 @@ impl TaskCache {
                     Err(e) => { return Err(e.into()); }
                 };
 
-        eprintln!("last_sync: {last_sync:?}");
+        log::info!("last_sync: {last_sync:?}");
         let new_last_sync = Utc::now();
         let mut tasks = self.api.get_tasks_filtered_sync_json("", last_sync).await?;
-        //dbg!(&tasks);
 
+        let now = Instant::now();
+        let mut tx = self.pool.begin().await?;
         let lists = tasks.get_mut("list");
         if let Some(JsonValue::Array(values)) = lists {
             for list in values {
@@ -90,7 +91,7 @@ impl TaskCache {
                             .bind(&list_id)
                             .bind(&taskseries_id)
                             .bind(ts.to_string())
-                            .execute(&self.pool)
+                            .execute(&mut *tx)
                             .await?;
 
                         if let Some(JsonValue::Array(tasks)) = task {
@@ -104,7 +105,7 @@ impl TaskCache {
                                     .bind(&taskseries_id)
                                     .bind(task_id)
                                     .bind(ts.to_string())
-                                    .execute(&self.pool)
+                                    .execute(&mut *tx)
                                     .await?;
                             }
                         }
@@ -112,6 +113,8 @@ impl TaskCache {
                 }
             }
         }
+        tx.commit().await?;
+        log::info!("Inserting data took: {} seconds", now.elapsed().as_secs());
 
         sqlx::query(
             "INSERT INTO task_meta(id, last_sync)
@@ -122,7 +125,7 @@ impl TaskCache {
             .bind(new_last_sync)
             .execute(&self.pool)
             .await?;
-        eprintln!("Updated last_sync to {new_last_sync:?}");
+        log::info!("Updated last_sync to {new_last_sync:?}");
 
         Ok(())
     }
