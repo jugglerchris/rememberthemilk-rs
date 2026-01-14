@@ -72,6 +72,7 @@ impl TaskCache {
         log::info!("last_sync: {last_sync:?}");
         let new_last_sync = Utc::now();
         let mut tasks = self.api.get_tasks_filtered_sync_json("", last_sync).await?;
+        //dbg!(&tasks);
 
         let now = Instant::now();
         let mut tx = self.pool.begin().await?;
@@ -86,7 +87,7 @@ impl TaskCache {
                         let task = ts.get_mut("task").map(|t| t.take());
                         sqlx::query(
                             "INSERT INTO taskseries(list_id, taskseries_id, data)
-                            VALUES(?, ?, ?)
+                            VALUES(?, ?, jsonb(?))
                         ")
                             .bind(&list_id)
                             .bind(&taskseries_id)
@@ -99,7 +100,7 @@ impl TaskCache {
                                 let task_id = t.get("id").unwrap().as_str().unwrap();
                                 sqlx::query(
                                     "INSERT INTO tasks(list_id, taskseries_id, task_id, data)
-                                    VALUES(?, ?, ?, ?)
+                                    VALUES(?, ?, ?, jsonb(?))
                                 ")
                                     .bind(&list_id)
                                     .bind(&taskseries_id)
@@ -107,6 +108,33 @@ impl TaskCache {
                                     .bind(ts.to_string())
                                     .execute(&mut *tx)
                                     .await?;
+                            }
+                        }
+                    }
+                }
+                if let Some(JsonValue::Array(deleted)) = list.get("deleted") {
+                    log::info!("List has {} deleted entries", deleted.len());
+                    for entry in deleted {
+                        log::debug!("Deleted entry: {entry}");
+                        if let Some(ts) = entry.get("taskseries") {
+                            log::debug!("Deleted ts: {ts}");
+                            let taskseries_id = ts.get("id").unwrap().as_str().unwrap().to_string();
+                            if let Some(JsonValue::Array(tasks)) = ts.get("task") {
+                                for t in tasks {
+                                    log::debug!("Deleted task: {t}");
+                                    let task_id = t.get("id").unwrap().as_str().unwrap();
+                                    log::info!("Deleting task {list_id}/{taskseries_id}/{task_id}");
+                                    sqlx::query(
+                                        "UPDATE tasks
+                                         SET deleted=true
+                                         WHERE list_id=? AND taskseries_id=? AND task_id=?;
+                            ")
+                                        .bind(&list_id)
+                                        .bind(&taskseries_id)
+                                        .bind(task_id)
+                                        .execute(&mut *tx)
+                                        .await?;
+                                    }
                             }
                         }
                     }
