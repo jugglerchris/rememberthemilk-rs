@@ -12,7 +12,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Terminal,
 };
-use rememberthemilk::{Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries, API};
+use rememberthemilk::{cache::TaskCache, Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries};
 use std::collections::HashMap;
 use std::process::ExitCode;
 use std::{borrow::Cow, io};
@@ -20,7 +20,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::StreamExt;
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
-use crate::{get_default_filter, get_rtm_api, tail_end};
+use crate::{get_default_filter, get_rtm_api, get_rtm_cache, tail_end};
 
 static HELP_TEXT: &str = r#"Key bindings:
 
@@ -135,7 +135,7 @@ enum TuiEvent {
 }
 
 struct Tui {
-    api: API,
+    api_cache: TaskCache,
     current_timeline: Option<RTMTimeline>,
     transactions: Vec<String>,
     event_rx: Receiver<TuiEvent>,
@@ -178,6 +178,7 @@ impl Tui {
 
         info!("Getting API instance...");
         let api = get_rtm_api(Perms::Delete).await?;
+        let api_cache = get_rtm_cache(api).await?;
         let tree_state: TreeState<usize> = Default::default();
         let filter = get_default_filter()?;
         let show_task = false;
@@ -204,7 +205,7 @@ impl Tui {
         };
 
         let mut tui = Tui {
-            api,
+            api_cache,
             event_rx,
             terminal,
             ui_state: std::sync::Arc::new(tokio::sync::Mutex::new(ui_state)),
@@ -221,7 +222,7 @@ impl Tui {
         trace!("Getting filter...");
         let filter = self.ui_state.lock().await.filter.clone();
         trace!("Requesting tasks...");
-        let tasks = self.api.get_tasks_filtered(&filter).await?;
+        let tasks = self.api_cache.get_tasks_filtered(&filter).await?;
         trace!("Got tasks.");
         let list_pos = 0;
 
@@ -359,8 +360,8 @@ impl Tui {
         Ok(())
     }
 
-    async fn fetch_lists(api: API, ui_state: std::sync::Arc<tokio::sync::Mutex<UiState>>) {
-        let lists = api.get_lists().await.unwrap();
+    async fn fetch_lists(api_cache: TaskCache, ui_state: std::sync::Arc<tokio::sync::Mutex<UiState>>) {
+        let lists = api_cache.get_lists().await.unwrap();
         let tx = ui_state.lock().await.event_tx.clone();
         {
             let mut ui_state = ui_state.lock().await;
@@ -389,7 +390,7 @@ impl Tui {
             (ui_state.filter.clone(), ids)
         };
         for (idx, list_id) in ids {
-            let tasks = get_tasks(&api, &filter, &list_id).await.unwrap();
+            let tasks = get_tasks(&api_cache, &filter, &list_id).await.unwrap();
             {
                 let mut ui_state = ui_state.lock().await;
                 if ui_state.lists.len() > idx && ui_state.lists[idx].list.id == list_id {
@@ -419,7 +420,7 @@ impl Tui {
             ui_state.show_task = false;
         }
         tokio::spawn(Tui::fetch_lists(
-            self.api.clone(),
+            self.api_cache.clone(),
             std::sync::Arc::clone(&self.ui_state),
         ));
         self.update_list_display().await
@@ -678,7 +679,7 @@ impl Tui {
                                 if !task_desc.is_empty() {
                                     let timeline = self.get_timeline().await?;
                                     let _added = self
-                                        .api
+                                        .api_cache
                                         .add_task(&timeline, &task_desc, None, None, None, true)
                                         .await?;
                                     self.update_tasks().await?;
@@ -710,9 +711,9 @@ impl Tui {
                                 match display_mode {
                                     DisplayMode::Tasks => {
                                         info!("Marking task as complete");
-                                        self.for_each_selected(async |api, tl, list, ts, task| {
+                                        self.for_each_selected(async |api_cache, tl, list, ts, task| {
                                             let resp =
-                                                api.mark_complete(tl, list, ts, task).await?;
+                                                api_cache.mark_complete(tl, list, ts, task).await?;
                                             if let Some(transaction) = resp {
                                                 if transaction.undoable
                                                     && !transaction.id.is_empty()
@@ -798,7 +799,7 @@ impl Tui {
 
     async fn get_timeline(&mut self) -> Result<RTMTimeline, anyhow::Error> {
         if self.current_timeline.is_none() {
-            self.current_timeline = Some(self.api.get_timeline().await?);
+            self.current_timeline = Some(self.api_cache.get_timeline().await?);
             self.transactions.clear();
         }
         Ok(self.current_timeline.as_ref().unwrap().clone())
@@ -808,7 +809,7 @@ impl Tui {
     async fn for_each_selected<F>(&mut self, f: F) -> Result<(), anyhow::Error>
     where
         F: AsyncFn(
-            &API,
+            &TaskCache,
             &RTMTimeline,
             &RTMLists,
             &TaskSeries,
@@ -822,7 +823,7 @@ impl Tui {
         let tree_pos = ui_state.tree_state.selected();
         if let Some((list, ts)) = it.nth(*tree_pos.last().unwrap()) {
             let task = &ts.task[0];
-            if let Some(tid) = f(&self.api, &timeline, list, ts, task).await? {
+            if let Some(tid) = f(&self.api_cache, &timeline, list, ts, task).await? {
                 self.transactions.push(tid);
             }
         }
@@ -833,7 +834,7 @@ impl Tui {
     async fn undo_latest(&mut self) -> Result<(), anyhow::Error> {
         if let Some(tl) = &self.current_timeline {
             if let Some(transaction) = self.transactions.pop() {
-                self.api.undo_transaction(tl, &transaction).await?;
+                self.api_cache.undo_transaction(tl, &transaction).await?;
             }
         }
         Ok(())
@@ -841,12 +842,12 @@ impl Tui {
 }
 
 async fn get_tasks(
-    api: &rememberthemilk::API,
-    filter: &str,
-    id: &str,
+    _api: &rememberthemilk::cache::TaskCache,
+    _filter: &str,
+    _id: &str,
 ) -> Result<RTMTasks, anyhow::Error> {
-    let tasks = api.get_tasks_in_list(id, filter).await?;
-    Ok(tasks)
+    let _tasks = unimplemented!(); //api.get_tasks_in_list(id, filter).await?;
+    //Ok(tasks)
 }
 
 impl Drop for Tui {

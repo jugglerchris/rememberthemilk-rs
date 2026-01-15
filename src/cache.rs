@@ -6,7 +6,7 @@ use chrono::Utc;
 use sqlx::{migrate::{MigrateDatabase as _, MigrateError}, Sqlite, SqlitePool};
 type JsonValue = serde_json::Value;
 
-use crate::API;
+use crate::{RTMList, RTMLists, RTMTasks, RTMTimeline, RTMTransaction, Task, TaskSeries, API};
 
 /// Cache errors
 #[derive(thiserror::Error, Debug)]
@@ -32,6 +32,7 @@ pub enum CacheError {
 pub type Result<T> = std::result::Result<T, CacheError>;
 
 /// A cache instance
+#[derive(Clone)]
 pub struct TaskCache {
     pool: SqlitePool,
     api: API,
@@ -105,7 +106,7 @@ impl TaskCache {
                                     .bind(&list_id)
                                     .bind(&taskseries_id)
                                     .bind(task_id)
-                                    .bind(ts.to_string())
+                                    .bind(t.to_string())
                                     .execute(&mut *tx)
                                     .await?;
                             }
@@ -156,5 +157,93 @@ impl TaskCache {
         log::info!("Updated last_sync to {new_last_sync:?}");
 
         Ok(())
+    }
+
+    /// Return tasks from the cache matching the filter.
+    pub async fn get_tasks_filtered(&self, filter: &str) -> std::result::Result<RTMTasks, crate::Error> {
+        if !filter.is_empty() {
+            eprintln!("Filters not yet implemented");
+        }
+
+        #[derive(sqlx::FromRow)]
+        struct Data {
+            list_id: String,
+            ts_data: String,
+            t_data: String,
+        }
+
+        let data: Vec<Data> = sqlx::query_as(
+            r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
+             FROM taskseries ts, tasks t
+             USING (list_id, taskseries_id)
+             WHERE
+                t.deleted != TRUE AND
+                jsonb_extract(t.data, "$.completed") = "" AND
+                jsonb_extract(t.data, "$.due") != "" AND
+                jsonb_extract(t.data, "$.due") < "2026-01-16";
+                "#)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut result = RTMTasks {
+            rev: Default::default(),
+            list: Vec::new(),
+        };
+        for item in data {
+            let mut list = RTMLists {
+                id: item.list_id,
+                taskseries: None,
+            };
+            let mut ts_json: serde_json::Value = serde_json::from_str(&item.ts_data).unwrap();
+            let t_json: serde_json::Value = 
+                vec![ serde_json::from_str::<serde_json::Value>(&item.t_data).unwrap()].into();
+            ts_json.as_object_mut().unwrap().insert("task".to_string(), t_json);
+            let ts: TaskSeries = serde_json::from_value(ts_json).unwrap();
+            list.taskseries = Some(vec![ts]);
+            result.list.push(list);
+        }
+        Ok(result)
+    }
+    /// Add a task and update the cache.
+    pub async fn add_task(
+        &self,
+        timeline: &RTMTimeline,
+        name: &str,
+        list: Option<&RTMLists>,
+        parent: Option<&Task>,
+        external_id: Option<&str>,
+        smart: bool,
+    ) -> std::result::Result<Option<RTMLists>, crate::Error> {
+        let result = self.api.add_task(timeline, name, list, parent, external_id, smart).await?;
+        self.sync().await?;
+        Ok(result)
+    }
+
+    /// Get a new timeline
+    pub async fn get_timeline(&self) -> std::result::Result<RTMTimeline, crate::Error> {
+        self.api.get_timeline().await
+    }
+    /// Get lists
+    pub async fn get_lists(&self) -> std::result::Result<Vec<RTMList>, crate::Error> {
+        self.api.get_lists().await
+    }
+    /// Mark complete
+    pub async fn mark_complete(
+        &self,
+        timeline: &RTMTimeline,
+        list: &RTMLists,
+        taskseries: &TaskSeries,
+        task: &Task,
+    ) -> std::result::Result<Option<RTMTransaction>, crate::Error> {
+        let result = self.api.mark_complete(timeline, list, taskseries, task).await?;
+        self.sync().await?;
+        Ok(result)
+    }
+    /// Undo transaction
+    pub async fn undo_transaction(
+        &self,
+        timeline: &RTMTimeline,
+        transaction_id: &str,
+    ) -> std::result::Result<(), crate::Error> {
+        self.api.undo_transaction(timeline, transaction_id).await
     }
 }

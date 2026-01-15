@@ -41,7 +41,7 @@ name = "rtm"
 
 [features]
 default = ["tui"]
-cache = ["dep:sqlx", "dep:thiserror"]
+cache = ["dep:sqlx", "dep:thiserror", "dep:etcetera"]
 tui = ["dep:ratatui", "dep:tui-tree-widget", "dep:crossterm", "cache", "dep:etcetera"]
 console-subscriber = ["dep:console-subscriber"]
 

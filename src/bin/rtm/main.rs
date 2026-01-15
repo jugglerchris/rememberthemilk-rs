@@ -3,6 +3,7 @@ use anyhow::bail;
 use clap::Parser;
 use etcetera::{AppStrategy, AppStrategyArgs};
 use log::{info, trace};
+use rememberthemilk::cache::TaskCache;
 use rememberthemilk::{Perms, API};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -30,6 +31,7 @@ impl Default for Settings {
     }
 }
 
+#[cfg(feature = "tui")]
 fn tail_end(input: &str, width: usize) -> String {
     let tot_width = unicode_width::UnicodeWidthStr::width(input);
     if tot_width <= width {
@@ -167,6 +169,21 @@ async fn get_rtm_api(perm: Perms) -> Result<API, anyhow::Error> {
         auth_user(&mut api, perm).await?;
     };
     Ok(api)
+}
+
+async fn get_rtm_cache(api: API) -> Result<TaskCache, anyhow::Error> {
+    let strategy = etcetera::choose_app_strategy(AppStrategyArgs {
+        top_level_domain: "org".into(),
+        author: "Chris Emerson".into(),
+        app_name: "rtm".into(),
+    }).unwrap();
+
+    let cache_dir = strategy.cache_dir();
+    std::fs::create_dir_all(&cache_dir)?;
+
+    let db_path = strategy.in_cache_dir("sync.sqlite");
+
+    Ok(TaskCache::new(&db_path, api).await?)
 }
 
 async fn auth_user(api: &mut API, perm: Perms) -> Result<(), anyhow::Error> {
@@ -406,20 +423,7 @@ fn print_taskseries(task: &rememberthemilk::TaskSeries) {
 
 #[cfg(feature = "cache")]
 async fn run_sync(_opt: &Opt) -> Result<ExitCode, anyhow::Error> {
-    use rememberthemilk::cache::TaskCache;
-
-    let strategy = etcetera::choose_app_strategy(AppStrategyArgs {
-        top_level_domain: "org".into(),
-        author: "Chris Emerson".into(),
-        app_name: "rtm".into(),
-    }).unwrap();
-
-    let cache_dir = strategy.cache_dir();
-    std::fs::create_dir_all(&cache_dir)?;
-
-    let db_path = strategy.in_cache_dir("sync.sqlite");
-    let api = get_rtm_api(Perms::Read).await?;
-    let cache = TaskCache::new(&db_path, api).await?;
+    let cache = get_rtm_cache(get_rtm_api(Perms::Read).await?).await?;
 
     cache.sync().await?;
     Ok(ExitCode::SUCCESS)
