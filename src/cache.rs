@@ -88,7 +88,8 @@ impl TaskCache {
                         let task = ts.get_mut("task").map(|t| t.take());
                         sqlx::query(
                             "INSERT INTO taskseries(list_id, taskseries_id, data)
-                            VALUES(?, ?, jsonb(?))
+                            VALUES(?1, ?2, jsonb(?3))
+                            ON CONFLICT DO UPDATE SET data = jsonb(?3);
                         ")
                             .bind(&list_id)
                             .bind(&taskseries_id)
@@ -101,7 +102,8 @@ impl TaskCache {
                                 let task_id = t.get("id").unwrap().as_str().unwrap();
                                 sqlx::query(
                                     "INSERT INTO tasks(list_id, taskseries_id, task_id, data)
-                                    VALUES(?, ?, ?, jsonb(?))
+                                    VALUES(?1, ?2, ?3, jsonb(?4))
+                                    ON CONFLICT DO UPDATE SET data = jsonb(?4);
                                 ")
                                     .bind(&list_id)
                                     .bind(&taskseries_id)
@@ -180,7 +182,7 @@ impl TaskCache {
                 t.deleted != TRUE AND
                 jsonb_extract(t.data, "$.completed") = "" AND
                 jsonb_extract(t.data, "$.due") != "" AND
-                jsonb_extract(t.data, "$.due") < "2026-01-16";
+                jsonb_extract(t.data, "$.due") < "2026-01-18";
                 "#)
             .fetch_all(&self.pool)
             .await?;

@@ -1,16 +1,17 @@
 CREATE TABLE taskseries (
-    id INTEGER PRIMARY KEY,
     list_id TEXT NOT NULL,
     taskseries_id TEXT NOT NULL,
-    data JSONB NOT NULL
+    data JSONB NOT NULL,
+    PRIMARY KEY (list_id, taskseries_id)
 );
 
 CREATE TABLE tasks (
-    id INTEGER PRIMARY KEY,
     list_id TEXT NOT NULL,
     taskseries_id TEXT NOT NULL,
     task_id TEXT NOT NULL,
-    data JSONB NOT NULL
+    deleted BOOLEAN DEFAULT FALSE,
+    data JSONB NOT NULL,
+    PRIMARY KEY (list_id, taskseries_id, task_id)
 );
 
 CREATE TABLE task_meta (
