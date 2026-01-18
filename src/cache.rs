@@ -153,6 +153,21 @@ impl TaskCache {
                 }
             }
         }
+
+        // Now get the lists
+        let lists = self.api.get_lists().await?;
+        for list in lists {
+            sqlx::query(
+                    "INSERT INTO lists(list_id, name)
+                    VALUES(?1, ?2)
+                    ON CONFLICT DO UPDATE SET name = ?2;
+                    ",
+                    )
+                .bind(&list.id)
+                .bind(&list.name)
+                .execute(&mut *tx)
+                .await?;
+        }
         tx.commit().await?;
         log::info!("Inserting data took: {} seconds", now.elapsed().as_secs());
 
