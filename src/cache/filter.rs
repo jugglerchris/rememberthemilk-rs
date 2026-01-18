@@ -25,14 +25,20 @@ pub enum RtmFilter {
     Name(String),
     /// Match on the contents of the name.
     List(String),
+    /// Match on a tag.
+    Tag(String),
     /// Match value due before a time
     DueBefore(chrono::DateTime<chrono::Utc>),
+    /// Match value due before a time
+    DueWithin(chrono::NaiveDate, chrono::NaiveDate),
     /// Match all of the sub expressions
     And(Vec<RtmFilter>),
     /// Match all of the sub expressions
     Or(Vec<RtmFilter>),
     /// Negated filter
     Not(Box<RtmFilter>),
+    /// Given by 
+    GivenBy(String),
 }
 
 /// Context required when interpreting filters
@@ -43,21 +49,30 @@ pub struct FilterContext {
 }
 
 impl RtmFilter {
-    pub(crate) fn to_sqlite_where_clause(&self, context: &FilterContext) -> Result<String, anyhow::Error> {
+    /// Return a SQL expression for a where clause, and some values to bind.
+    /// The values should correspond to '?' markers in the expression.
+    pub(crate) fn to_sqlite_where_clause(&self, context: &FilterContext) -> Result<(String, Vec<String>), anyhow::Error> {
         let result = match self {
             RtmFilter::Complete(val) => {
                 if *val {
-                    r#"jsonb_extract(t.data, "$.completed") <> """#.into()
+                    (r#"jsonb_extract(t.data, "$.completed") <> """#.to_string(), Vec::new())
                 } else {
-                    r#"jsonb_extract(t.data, "$.completed") = """#.into()
+                    (r#"jsonb_extract(t.data, "$.completed") = """#.to_string(), Vec::new())
                 }
             }
             RtmFilter::Name(_s) => todo!(),
+            RtmFilter::Tag(s) => {
+                (r#"EXISTS (SELECT * FROM jsonb_each(jsonb_extract(ts.data,'$.tags')) WHERE json_each.value = ?"#.into(), vec![s.to_string()])
+            }
             RtmFilter::And(rtm_filters) => {
                 let mut result = String::new();
+                let mut binds = Vec::new();
                 for filt in rtm_filters {
                     result.push('(');
-                    result += &filt.to_sqlite_where_clause(context)?;
+                    let (sub_where, sub_binds) = filt.to_sqlite_where_clause(context)?;
+                    result += &sub_where;
+                    binds.extend(sub_binds);
+
                     result.push_str(") AND ");
                 }
                 debug_assert!(result.ends_with(") AND "));
@@ -65,13 +80,16 @@ impl RtmFilter {
                     // Remove the last " AND "
                     result.pop().unwrap();
                 }
-                result
+                (result, Vec::new())
             }
             RtmFilter::Or(rtm_filters) => {
                 let mut result = String::new();
+                let mut binds = Vec::new();
                 for filt in rtm_filters {
                     result.push('(');
-                    result += &filt.to_sqlite_where_clause(context)?;
+                    let (sub_where, sub_binds) = filt.to_sqlite_where_clause(context)?;
+                    result += &sub_where;
+                    binds.extend(sub_binds);
                     result.push_str(") OR ");
                 }
                 debug_assert!(result.ends_with(") OR "));
@@ -79,29 +97,40 @@ impl RtmFilter {
                     // Remove the last " OR "
                     result.pop().unwrap();
                 }
-                result
+                (result, Vec::new())
             }
             RtmFilter::DueBefore(time) => {
-                format!(
-                    r#"jsonb_extract(t.data, "$.due") <> "" AND jsonb_extract(t.data, "$.due") < "{}""#,
-                    time.to_rfc3339()
-                )
+                (r#"jsonb_extract(t.data, "$.due") <> "" AND jsonb_extract(t.data, "$.due") < ?"#.into(),
+                    vec![time.to_rfc3339()])
+            }
+            RtmFilter::DueWithin(from, to) => {
+                (format!(
+                    r#"jsonb_extract(t.data, "$.due") <> "" AND jsonb_extract(t.data, "$.due") < "{}" AND jsonb_extract(t.data, "$.due") >= "{}""#,
+                    to.format("%Y-%m-%d"),
+                    from.format("%Y-%m-%d"),
+                ), Vec::new())
             }
             RtmFilter::Not(filt) => {
-                format!("NOT {}", filt.to_sqlite_where_clause(context)?)
+                let (clause, binds) = filt.to_sqlite_where_clause(context)?;
+                (format!("NOT {}", clause), binds)
             }
             RtmFilter::List(listname) => {
                 match context.lists_name_to_id.get(listname) {
                     Some(id) => {
                         let id: u64 = id.parse()?;
-                        format!(r#"t.list_id = "{id}""#)
+
+                        (r#"t.list_id = ?"#.into(), vec![id.to_string()])
                     }
                     None => {
                         log::warn!("Invalid list name: {listname}");
                         // Since the list doesn't exist, this is equivalent to false.
-                        "FALSE".into()
+                        ("FALSE".into(), Vec::new())
                     }
                 }
+            }
+            RtmFilter::GivenBy(_name) => {
+                // This is not possible to work out from the API.
+                (r#"json_array_length(json_extract(data, "$.participants.contact")) >= 1"#.into(), Vec::new())
             }
         };
         Ok(result)
@@ -132,6 +161,14 @@ impl<'a> Term<'a> {
                     bail!("Unknown date format {}", self.value);
                 }
             }
+            "dueWithin" => {
+                if self.value.as_ref() == "1 day of today" {
+                    let today = Utc::now().date_naive();
+                    RtmFilter::DueWithin(today, today + chrono::Duration::days(1))
+                } else {
+                    bail!("Unknown date format {}", self.value);
+                }
+            }
             "due" => {
                 if self.value.as_ref() == "today" {
                     let today = Utc::now()
@@ -143,6 +180,14 @@ impl<'a> Term<'a> {
                 }
             }
             "list" => RtmFilter::List(self.value.to_string()),
+            "tag" => {
+                RtmFilter::Tag(self.value.to_string())
+            }
+            "givenBy" => {
+                // We don't seem to have enough information in the API
+                // yet.
+                RtmFilter::GivenBy(self.value.to_string())
+            }
             key => bail!("Unknown filter type {key}"),
         };
         Ok(filt)
@@ -408,13 +453,18 @@ lists_name_to_id: [
 ].into(),
         };
 
-        for (filt_s, expected) in &[
-            ("status:completed", r#"jsonb_extract(t.data, "$.completed") <> """#),
-            ("list:foo", r#"t.list_id = "12345678""#),
-            (r#"list:"My List""#, r#"t.list_id = "87654321""#),
+        for (filt_s, expected, expected_binds) in &[
+            ("status:completed", r#"jsonb_extract(t.data, "$.completed") <> """#, &[][..]),
+            ("list:foo", r#"t.list_id = ?"#, &["12345678"]),
+            (r#"list:"My List""#, r#"t.list_id = ?"#, &["87654321"]),
         ] {
             let filt = parse_filter(filt_s)?;
-            assert_eq!(&filt.to_sqlite_where_clause(&context)?, expected);
+            let (clause, binds) = filt.to_sqlite_where_clause(&context)?;
+            assert_eq!(&clause, expected);
+            assert_eq!(binds.len(), expected_binds.len());
+            for (b, eb) in binds.iter().zip(expected_binds.iter()) {
+                assert_eq!(b, eb);
+            }
         }
         Ok(())
     }

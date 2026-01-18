@@ -192,6 +192,7 @@ impl TaskCache {
         filt: &str,
     ) -> std::result::Result<RTMTasks, crate::Error> {
         let mut filter_clause = String::new();
+        let mut filter_binds = Vec::new();
         if !filt.is_empty() {
             let filter = filter::parse_filter(filt)?;
             let mut context = filter::FilterContext::default();
@@ -199,7 +200,10 @@ impl TaskCache {
             for list in lists {
                 context.lists_name_to_id.insert(list.name, list.id);
             }
-            filter_clause = filter.to_sqlite_where_clause(&context)?;
+            let (clause, binds) = filter.to_sqlite_where_clause(&context)?;
+            filter_clause = clause;
+            filter_binds = binds;
+
             log::info!("Filter clause: {filter_clause}");
         }
 
@@ -210,7 +214,7 @@ impl TaskCache {
             t_data: String,
         }
 
-        let query = format!(
+        let query_str = format!(
             r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
              USING (list_id, taskseries_id)
@@ -219,7 +223,11 @@ impl TaskCache {
                 {filter_clause};
                 "#
         );
-        let data: Vec<Data> = sqlx::query_as(&query).fetch_all(&self.pool).await?;
+        let mut query = sqlx::query_as(&query_str);
+        for bind in filter_binds {
+            query = query.bind(bind);
+        }
+        let data: Vec<Data> = query.fetch_all(&self.pool).await?;
         let mut result = RTMTasks {
             rev: Default::default(),
             list: Vec::new(),
