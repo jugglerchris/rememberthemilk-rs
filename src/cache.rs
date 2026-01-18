@@ -179,7 +179,8 @@ impl TaskCache {
         let mut filter_clause = String::new();
         if !filt.is_empty() {
             let filter = filter::parse_filter(filt)?;
-            filter_clause = filter.to_sqlite_where_clause();
+            let context = filter::FilterContext::default();
+            filter_clause = filter.to_sqlite_where_clause(&context)?;
         }
 
         #[derive(sqlx::FromRow)]
