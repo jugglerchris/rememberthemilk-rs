@@ -12,7 +12,9 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Terminal,
 };
-use rememberthemilk::{cache::TaskCache, Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries};
+use rememberthemilk::{
+    cache::TaskCache, Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries,
+};
 use std::collections::HashMap;
 use std::process::ExitCode;
 use std::{borrow::Cow, io};
@@ -360,7 +362,10 @@ impl Tui {
         Ok(())
     }
 
-    async fn fetch_lists(api_cache: TaskCache, ui_state: std::sync::Arc<tokio::sync::Mutex<UiState>>) {
+    async fn fetch_lists(
+        api_cache: TaskCache,
+        ui_state: std::sync::Arc<tokio::sync::Mutex<UiState>>,
+    ) {
         let lists = api_cache.get_lists().await.unwrap();
         let tx = ui_state.lock().await.event_tx.clone();
         {
@@ -711,21 +716,24 @@ impl Tui {
                                 match display_mode {
                                     DisplayMode::Tasks => {
                                         info!("Marking task as complete");
-                                        self.for_each_selected(async |api_cache, tl, list, ts, task| {
-                                            let resp =
-                                                api_cache.mark_complete(tl, list, ts, task).await?;
-                                            if let Some(transaction) = resp {
-                                                if transaction.undoable
-                                                    && !transaction.id.is_empty()
-                                                {
-                                                    Ok(Some(transaction.id))
+                                        self.for_each_selected(
+                                            async |api_cache, tl, list, ts, task| {
+                                                let resp = api_cache
+                                                    .mark_complete(tl, list, ts, task)
+                                                    .await?;
+                                                if let Some(transaction) = resp {
+                                                    if transaction.undoable
+                                                        && !transaction.id.is_empty()
+                                                    {
+                                                        Ok(Some(transaction.id))
+                                                    } else {
+                                                        Ok(None)
+                                                    }
                                                 } else {
                                                     Ok(None)
                                                 }
-                                            } else {
-                                                Ok(None)
-                                            }
-                                        })
+                                            },
+                                        )
                                         .await?;
                                         info!("Marked as complete!");
                                         self.update_tasks().await?;
@@ -847,7 +855,7 @@ async fn get_tasks(
     _id: &str,
 ) -> Result<RTMTasks, anyhow::Error> {
     let _tasks = unimplemented!(); //api.get_tasks_in_list(id, filter).await?;
-    //Ok(tasks)
+                                   //Ok(tasks)
 }
 
 impl Drop for Tui {

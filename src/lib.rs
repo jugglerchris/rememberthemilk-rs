@@ -55,8 +55,8 @@
 //! ```
 use anyhow::{bail, Error};
 use chrono::{DateTime, Duration, NaiveTime, Utc};
-use serde::{de::Unexpected, Deserialize, de::DeserializeOwned, Serialize};
-use serde_json::{from_str, from_reader};
+use serde::{de::DeserializeOwned, de::Unexpected, Deserialize, Serialize};
+use serde_json::{from_reader, from_str};
 
 #[cfg(feature = "cache")]
 pub mod cache;
@@ -810,8 +810,13 @@ impl API {
         self.get_tasks_filtered("").await
     }
 
-    async fn get_tasks_filtered_sync_typed<T>(&self, filter: &str, last_sync: Option<chrono::DateTime<Utc>>) -> Result<T, Error>
-    where T: DeserializeOwned
+    async fn get_tasks_filtered_sync_typed<T>(
+        &self,
+        filter: &str,
+        last_sync: Option<chrono::DateTime<Utc>>,
+    ) -> Result<T, Error>
+    where
+        T: DeserializeOwned,
     {
         if let Some(ref tok) = self.token {
             let mut params = vec![
@@ -850,8 +855,14 @@ impl API {
     /// `last_sync`, if specified, will get only changed tasks since that date.
     ///
     /// Requires a valid user authentication token.
-    pub async fn get_tasks_filtered_sync(&self, filter: &str, last_sync: Option<chrono::DateTime<Utc>>) -> Result<RTMTasks, Error> {
-        Ok(self.get_tasks_filtered_sync_typed::<RTMResponse<TasksResponse>>(filter, last_sync).await?
+    pub async fn get_tasks_filtered_sync(
+        &self,
+        filter: &str,
+        last_sync: Option<chrono::DateTime<Utc>>,
+    ) -> Result<RTMTasks, Error> {
+        Ok(self
+            .get_tasks_filtered_sync_typed::<RTMResponse<TasksResponse>>(filter, last_sync)
+            .await?
             .rsp
             .tasks)
     }
@@ -869,8 +880,14 @@ impl API {
     /// `last_sync`, if specified, will get only changed tasks since that date.
     ///
     /// Requires a valid user authentication token.
-    pub async fn get_tasks_filtered_sync_json(&self, filter: &str, last_sync: Option<chrono::DateTime<Utc>>) -> Result<serde_json::Value, Error> {
-        Ok(self.get_tasks_filtered_sync_typed::<serde_json::Value>(filter, last_sync).await?
+    pub async fn get_tasks_filtered_sync_json(
+        &self,
+        filter: &str,
+        last_sync: Option<chrono::DateTime<Utc>>,
+    ) -> Result<serde_json::Value, Error> {
+        Ok(self
+            .get_tasks_filtered_sync_typed::<serde_json::Value>(filter, last_sync)
+            .await?
             .get_mut("rsp")
             .ok_or_else(|| anyhow::anyhow!("Response did not have rsp field"))?
             .get_mut("tasks")

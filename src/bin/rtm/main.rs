@@ -176,7 +176,8 @@ async fn get_rtm_cache(api: API) -> Result<TaskCache, anyhow::Error> {
         top_level_domain: "org".into(),
         author: "Chris Emerson".into(),
         app_name: "rtm".into(),
-    }).unwrap();
+    })
+    .unwrap();
 
     let cache_dir = strategy.cache_dir();
     std::fs::create_dir_all(&cache_dir)?;

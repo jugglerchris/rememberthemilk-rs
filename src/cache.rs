@@ -3,10 +3,15 @@
 use std::{path::Path, time::Instant};
 
 use chrono::Utc;
-use sqlx::{migrate::{MigrateDatabase as _, MigrateError}, Sqlite, SqlitePool};
+use sqlx::{
+    migrate::{MigrateDatabase as _, MigrateError},
+    Sqlite, SqlitePool,
+};
 type JsonValue = serde_json::Value;
 
 use crate::{RTMList, RTMLists, RTMTasks, RTMTimeline, RTMTransaction, Task, TaskSeries, API};
+
+mod filter;
 
 /// Cache errors
 #[derive(thiserror::Error, Debug)]
@@ -42,33 +47,34 @@ impl TaskCache {
     /// Open or create a new task cache.
     pub async fn new(db_path: &Path, api: API) -> Result<Self> {
         log::info!("Opening db at {db_path:?}");
-        let Some(db_name) = db_path.as_os_str().to_str()
-            else {
-                return Err(CacheError::PathError);
-            };
+        let Some(db_name) = db_path.as_os_str().to_str() else {
+            return Err(CacheError::PathError);
+        };
         if !Sqlite::database_exists(db_name).await? {
-            Sqlite::create_database(db_name).await?;                                
-        }                                                                       
+            Sqlite::create_database(db_name).await?;
+        }
 
-        let pool = SqlitePool::connect(db_name).await?;                            
-        sqlx::migrate!()                                                        
-            .run(&pool)                                                         
-            .await?;
+        let pool = SqlitePool::connect(db_name).await?;
+        sqlx::migrate!().run(&pool).await?;
         Ok(TaskCache { pool, api })
-
     }
 
     /// WIP get all tasks
     pub async fn sync(&self) -> Result<()> {
         let last_sync: Option<chrono::DateTime<Utc>> =
-            match sqlx::query_as::<_, (chrono::DateTime<Utc>,)>("SELECT last_sync FROM task_meta WHERE id = 1")
-                .fetch_one(&self.pool)
-                .await
-                .map(|(d,)| d) {
-                    Ok(d) => Some(d),
-                    Err(sqlx::Error::RowNotFound) => None,
-                    Err(e) => { return Err(e.into()); }
-                };
+            match sqlx::query_as::<_, (chrono::DateTime<Utc>,)>(
+                "SELECT last_sync FROM task_meta WHERE id = 1",
+            )
+            .fetch_one(&self.pool)
+            .await
+            .map(|(d,)| d)
+            {
+                Ok(d) => Some(d),
+                Err(sqlx::Error::RowNotFound) => None,
+                Err(e) => {
+                    return Err(e.into());
+                }
+            };
 
         log::info!("last_sync: {last_sync:?}");
         let new_last_sync = Utc::now();
@@ -90,12 +96,13 @@ impl TaskCache {
                             "INSERT INTO taskseries(list_id, taskseries_id, data)
                             VALUES(?1, ?2, jsonb(?3))
                             ON CONFLICT DO UPDATE SET data = jsonb(?3);
-                        ")
-                            .bind(&list_id)
-                            .bind(&taskseries_id)
-                            .bind(ts.to_string())
-                            .execute(&mut *tx)
-                            .await?;
+                        ",
+                        )
+                        .bind(&list_id)
+                        .bind(&taskseries_id)
+                        .bind(ts.to_string())
+                        .execute(&mut *tx)
+                        .await?;
 
                         if let Some(JsonValue::Array(tasks)) = task {
                             for t in tasks {
@@ -104,13 +111,14 @@ impl TaskCache {
                                     "INSERT INTO tasks(list_id, taskseries_id, task_id, data)
                                     VALUES(?1, ?2, ?3, jsonb(?4))
                                     ON CONFLICT DO UPDATE SET data = jsonb(?4);
-                                ")
-                                    .bind(&list_id)
-                                    .bind(&taskseries_id)
-                                    .bind(task_id)
-                                    .bind(t.to_string())
-                                    .execute(&mut *tx)
-                                    .await?;
+                                ",
+                                )
+                                .bind(&list_id)
+                                .bind(&taskseries_id)
+                                .bind(task_id)
+                                .bind(t.to_string())
+                                .execute(&mut *tx)
+                                .await?;
                             }
                         }
                     }
@@ -131,13 +139,14 @@ impl TaskCache {
                                         "UPDATE tasks
                                          SET deleted=true
                                          WHERE list_id=? AND taskseries_id=? AND task_id=?;
-                            ")
-                                        .bind(&list_id)
-                                        .bind(&taskseries_id)
-                                        .bind(task_id)
-                                        .execute(&mut *tx)
-                                        .await?;
-                                    }
+                            ",
+                                    )
+                                    .bind(&list_id)
+                                    .bind(&taskseries_id)
+                                    .bind(task_id)
+                                    .execute(&mut *tx)
+                                    .await?;
+                                }
                             }
                         }
                     }
@@ -152,19 +161,25 @@ impl TaskCache {
             VALUES(1, ?1)
             ON CONFLICT(id) DO UPDATE SET
               last_sync=?1
-            ")
-            .bind(new_last_sync)
-            .execute(&self.pool)
-            .await?;
+            ",
+        )
+        .bind(new_last_sync)
+        .execute(&self.pool)
+        .await?;
         log::info!("Updated last_sync to {new_last_sync:?}");
 
         Ok(())
     }
 
     /// Return tasks from the cache matching the filter.
-    pub async fn get_tasks_filtered(&self, filter: &str) -> std::result::Result<RTMTasks, crate::Error> {
-        if !filter.is_empty() {
-            eprintln!("Filters not yet implemented");
+    pub async fn get_tasks_filtered(
+        &self,
+        filt: &str,
+    ) -> std::result::Result<RTMTasks, crate::Error> {
+        let mut filter_clause = String::new();
+        if !filt.is_empty() {
+            let filter = filter::parse_filter(filt)?;
+            filter_clause = filter.to_sqlite_where_clause();
         }
 
         #[derive(sqlx::FromRow)]
@@ -174,18 +189,16 @@ impl TaskCache {
             t_data: String,
         }
 
-        let data: Vec<Data> = sqlx::query_as(
+        let query = &format!(
             r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
              USING (list_id, taskseries_id)
              WHERE
                 t.deleted != TRUE AND
-                jsonb_extract(t.data, "$.completed") = "" AND
-                jsonb_extract(t.data, "$.due") != "" AND
-                jsonb_extract(t.data, "$.due") < "2026-01-18";
-                "#)
-            .fetch_all(&self.pool)
-            .await?;
+                {filter_clause};
+                "#
+        );
+        let data: Vec<Data> = sqlx::query_as(&query).fetch_all(&self.pool).await?;
         let mut result = RTMTasks {
             rev: Default::default(),
             list: Vec::new(),
@@ -196,9 +209,12 @@ impl TaskCache {
                 taskseries: None,
             };
             let mut ts_json: serde_json::Value = serde_json::from_str(&item.ts_data).unwrap();
-            let t_json: serde_json::Value = 
-                vec![ serde_json::from_str::<serde_json::Value>(&item.t_data).unwrap()].into();
-            ts_json.as_object_mut().unwrap().insert("task".to_string(), t_json);
+            let t_json: serde_json::Value =
+                vec![serde_json::from_str::<serde_json::Value>(&item.t_data).unwrap()].into();
+            ts_json
+                .as_object_mut()
+                .unwrap()
+                .insert("task".to_string(), t_json);
             let ts: TaskSeries = serde_json::from_value(ts_json).unwrap();
             list.taskseries = Some(vec![ts]);
             result.list.push(list);
@@ -215,7 +231,10 @@ impl TaskCache {
         external_id: Option<&str>,
         smart: bool,
     ) -> std::result::Result<Option<RTMLists>, crate::Error> {
-        let result = self.api.add_task(timeline, name, list, parent, external_id, smart).await?;
+        let result = self
+            .api
+            .add_task(timeline, name, list, parent, external_id, smart)
+            .await?;
         self.sync().await?;
         Ok(result)
     }
@@ -236,7 +255,10 @@ impl TaskCache {
         taskseries: &TaskSeries,
         task: &Task,
     ) -> std::result::Result<Option<RTMTransaction>, crate::Error> {
-        let result = self.api.mark_complete(timeline, list, taskseries, task).await?;
+        let result = self
+            .api
+            .mark_complete(timeline, list, taskseries, task)
+            .await?;
         self.sync().await?;
         Ok(result)
     }
