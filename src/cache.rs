@@ -189,7 +189,7 @@ impl TaskCache {
             t_data: String,
         }
 
-        let query = &format!(
+        let query = format!(
             r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
              USING (list_id, taskseries_id)
@@ -221,6 +221,54 @@ impl TaskCache {
         }
         Ok(result)
     }
+
+    /// Return tasks which are children of a given task
+    pub async fn get_task_children(
+        &self,
+        parent_id: &str,
+    ) -> std::result::Result<RTMTasks, crate::Error> {
+        #[derive(sqlx::FromRow)]
+        struct Data {
+            list_id: String,
+            ts_data: String,
+            t_data: String,
+        }
+
+        let query = 
+            r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
+             FROM taskseries ts, tasks t
+             USING (list_id, taskseries_id)
+             WHERE
+                t.deleted != TRUE AND
+                jsonb_extract(t.data, "$.completed") = "" AND
+                jsonb_extract(ts.data, "$.parent_task_id") = ?
+                "#;
+        let data: Vec<Data> = sqlx::query_as(query)
+            .bind(parent_id)
+            .fetch_all(&self.pool).await?;
+        let mut result = RTMTasks {
+            rev: Default::default(),
+            list: Vec::new(),
+        };
+        for item in data {
+            let mut list = RTMLists {
+                id: item.list_id,
+                taskseries: None,
+            };
+            let mut ts_json: serde_json::Value = serde_json::from_str(&item.ts_data).unwrap();
+            let t_json: serde_json::Value =
+                vec![serde_json::from_str::<serde_json::Value>(&item.t_data).unwrap()].into();
+            ts_json
+                .as_object_mut()
+                .unwrap()
+                .insert("task".to_string(), t_json);
+            let ts: TaskSeries = serde_json::from_value(ts_json).unwrap();
+            list.taskseries = Some(vec![ts]);
+            result.list.push(list);
+        }
+        Ok(result)
+    }
+
     /// Add a task and update the cache.
     pub async fn add_task(
         &self,

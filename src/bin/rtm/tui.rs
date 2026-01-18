@@ -37,6 +37,7 @@ Space   Toggle selection
 ?/h     Show this help
 enter   Toggle task details
 ^L      Refresh screen
+^R      Initiate sync
 "#;
 
 #[derive(Copy, Clone)]
@@ -226,6 +227,7 @@ impl Tui {
         trace!("Requesting tasks...");
         let tasks = self.api_cache.get_tasks_filtered(&filter).await?;
         trace!("Got tasks.");
+        let tasks = self.add_missing_children(tasks).await?;
         let list_pos = 0;
 
         let flat_tasks: Vec<TaskSeries> = RtmTaskListIterator::new(&tasks)
@@ -699,6 +701,11 @@ impl Tui {
                                 self.ui_state.lock().await.refresh = true;
                                 StepResult::Cont
                             }
+                            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                                self.api_cache.sync().await?;
+                                self.ui_state.lock().await.refresh = true;
+                                StepResult::Cont
+                            }
                             (KeyCode::Enter, KeyModifiers::NONE) => {
                                 let mut ui_state = self.ui_state.lock().await;
                                 match ui_state.display_mode {
@@ -846,6 +853,69 @@ impl Tui {
             }
         }
         Ok(())
+    }
+
+    async fn add_missing_children(&self, tasks: RTMTasks) -> Result<RTMTasks, anyhow::Error> {
+        use std::collections::hash_map::Entry;
+        let mut all_lists = HashMap::new();
+
+        let update_lists = |all_lists: &mut HashMap<String, HashMap<String, TaskSeries>>, tasks: RTMTasks| {
+            // Initially import the tasks into hash maps.
+            for list in tasks.list {
+                let list_map = all_lists.entry(list.id)
+                    .or_insert_with(|| HashMap::new());
+                if let Some(tss) = list.taskseries {
+                    for ts in tss {
+                        match list_map.entry(ts.id.clone()) {
+                            Entry::Occupied(mut occupied_entry) => {
+                                let cur_ts = occupied_entry.get_mut();
+                                for new_t in ts.task {
+                                    if !cur_ts.task.iter().any(|t| t.id == new_t.id) {
+                                        cur_ts.task.push(new_t);
+                                    }
+                                }
+                            }
+                            Entry::Vacant(vacant_entry) => {
+                                vacant_entry.insert(ts);
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        update_lists(&mut all_lists, tasks);
+
+        let mut task_ids = Vec::new();
+        for (_, l) in all_lists.iter() {
+            for (_, ts) in l.iter() {
+                for t in &ts.task {
+                    task_ids.push(t.id.clone());
+                }
+            }
+        }
+
+        while let Some(id) = task_ids.pop() {
+            let children = self.api_cache.get_task_children(&id).await?;
+            for (_list, ts) in RtmTaskListIterator::new(&children) {
+                for t in &ts.task {
+                    task_ids.push(t.id.clone());
+                }
+            }
+
+            update_lists(&mut all_lists, children);
+        }
+
+        // Now combine back into an RTMLists.
+        let mut result: RTMTasks = Default::default();
+        for (list_id, list) in all_lists.into_iter() {
+            let new_list = RTMLists {
+                id: list_id,
+                taskseries: Some(list.into_iter().map(|(_k, v)| v).collect()),
+            };
+            result.list.push(new_list);
+
+        }
+        Ok(result)
     }
 }
 
