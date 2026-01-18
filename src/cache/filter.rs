@@ -39,7 +39,7 @@ pub enum RtmFilter {
 #[derive(Default)]
 pub struct FilterContext {
     /// Mapping from list names to list id
-    lists_name_to_id: HashMap<String, String>,
+    pub lists_name_to_id: HashMap<String, String>,
 }
 
 impl RtmFilter {
@@ -97,7 +97,9 @@ impl RtmFilter {
                         format!(r#"t.list_id = "{id}""#)
                     }
                     None => {
-                        bail!("Invalid list name: {listname}");
+                        log::warn!("Invalid list name: {listname}");
+                        // Since the list doesn't exist, this is equivalent to false.
+                        "FALSE".into()
                     }
                 }
             }
