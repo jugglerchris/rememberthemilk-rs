@@ -196,6 +196,7 @@ impl TaskCache {
         if !filt.is_empty() {
             let filter = filter::parse_filter(filt)?;
             let mut context = filter::FilterContext::default();
+            context.now = Utc::now();
             let lists = self.get_lists().await?;
             for list in lists {
                 context.lists_name_to_id.insert(list.name, list.id);
