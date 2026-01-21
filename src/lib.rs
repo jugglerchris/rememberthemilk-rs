@@ -1136,6 +1136,22 @@ impl API {
         taskseries: &TaskSeries,
         task: &Task,
     ) -> Result<Option<RTMTransaction>, Error> {
+        self.mark_complete_id(timeline, &list.id, &taskseries.id, &task.id).await
+    }
+
+    /// Mark a task as complete, passing only ids.
+    ///
+    /// * `timeline`: a timeline as retrieved using [API::get_timeline]
+    /// * `list_id`, `taskseries_id` and `task_id` identify the task to tag.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn mark_complete_id(
+        &self,
+        timeline: &RTMTimeline,
+        list_id: &str,
+        taskseries_id: &str,
+        task_id: &str,
+    ) -> Result<Option<RTMTransaction>, Error> {
         if let Some(ref tok) = self.token {
             let params = &[
                 ("method", "rtm.tasks.complete"),
@@ -1143,9 +1159,9 @@ impl API {
                 ("api_key", &self.api_key),
                 ("auth_token", tok),
                 ("timeline", &timeline.0),
-                ("list_id", &list.id),
-                ("taskseries_id", &taskseries.id),
-                ("task_id", &task.id),
+                ("list_id", list_id),
+                ("taskseries_id", taskseries_id),
+                ("task_id", task_id),
             ];
             let response = self
                 .make_authenticated_request(&self.get_rest_url(), params)

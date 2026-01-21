@@ -340,6 +340,21 @@ impl TaskCache {
         self.sync().await?;
         Ok(result)
     }
+    /// Mark complete
+    pub async fn mark_complete_id(
+        &self,
+        timeline: &RTMTimeline,
+        list_id: &str,
+        taskseries_id: &str,
+        task_id: &str,
+    ) -> std::result::Result<Option<RTMTransaction>, crate::Error> {
+        let result = self
+            .api
+            .mark_complete_id(timeline, list_id, taskseries_id, task_id)
+            .await?;
+        self.sync().await?;
+        Ok(result)
+    }
     /// Undo transaction
     pub async fn undo_transaction(
         &self,
