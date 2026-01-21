@@ -15,7 +15,7 @@ use ratatui::{
 use rememberthemilk::{
     cache::TaskCache, Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 use std::process::ExitCode;
 use std::{borrow::Cow, io};
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -76,7 +76,47 @@ struct UiState {
     show_input: bool,
     show_help: bool,
     refresh: bool,
+    // Spinner with current state.
+    spinner: Option<(String, usize, &'static [&'static str])>,
+    tick_running: bool,
+    tick_tx: Sender<()>,
     event_tx: Sender<TuiEvent>,
+}
+
+impl UiState {
+    // Returns true if the tick should be rescheduled
+    fn tick(&mut self) {
+        if let Some((_s, step, chars)) = self.spinner.as_mut() {
+            *step = (*step + 1) % chars.len();
+            self.refresh = true;
+        } else {
+            self.stop_ticking();
+        }
+    }
+
+    // Start a tick
+    async fn start_progress<F: Future + Send + 'static>(ui: &std::sync::Arc<tokio::sync::Mutex<Self>>,
+        message: &str, spinner: &'static [&'static str], task: F) -> anyhow::Result<()> {
+        let mut this = ui.lock().await;
+        this.tick_running = true;
+        this.spinner = Some((message.into(), 0, spinner));
+        {
+            let task_this = Arc::clone(ui);
+            tokio::spawn(async move {
+                task.await;
+                let mut locked = task_this.lock().await;
+                locked.spinner = None;
+                locked.tick_running = false;
+            });
+        }
+        this.tick_tx.send(()).await?;
+        Ok(())
+    }
+
+    // Stop ticking
+    fn stop_ticking(&mut self) {
+        self.tick_running = false;
+    }
 }
 
 struct RtmTaskListIterator<'t> {
@@ -135,6 +175,8 @@ impl<'t> Iterator for RtmTaskListIterator<'t> {
 enum TuiEvent {
     Input(Result<crossterm::event::Event, std::io::Error>),
     StateChanged,
+    Tick,
+    SyncFinished,
 }
 
 struct Tui {
@@ -160,6 +202,7 @@ impl Tui {
         let mut events = crossterm::event::EventStream::new();
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(10);
 
+
         {
             let event_tx = event_tx.clone();
             info!("Spawning event task...");
@@ -179,6 +222,7 @@ impl Tui {
             });
         }
 
+        let (tick_tx, tick_rx) = tokio::sync::mpsc::channel(1);
         info!("Getting API instance...");
         let api = get_rtm_api(Perms::Delete).await?;
         let api_cache = get_rtm_cache(api).await?;
@@ -204,7 +248,10 @@ impl Tui {
             input_value: String::new(),
             show_input: false,
             refresh: false,
-            event_tx,
+            event_tx: event_tx.clone(),
+            spinner: None,
+            tick_running: false,
+            tick_tx,
         };
 
         let mut tui = Tui {
@@ -215,6 +262,32 @@ impl Tui {
             current_timeline: None,
             transactions: Vec::new(),
         };
+
+        {
+            let ui_state = Arc::clone(&tui.ui_state);
+            let mut tick_rx = tick_rx;
+            tokio::spawn(async move {
+                loop {
+                    let _ = tick_rx.recv().await;
+                    let running = ui_state.lock().await.tick_running;
+                    if running {
+                        // Start ticking.
+                        let mut interval = tokio::time::interval(Duration::from_millis(250));
+                        loop {
+                            let _ = interval.tick().await;
+                            let ui_state = ui_state.lock().await;
+                            if ui_state.tick_running {
+                                event_tx.send(TuiEvent::Tick).await.unwrap();
+                            } else {
+
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         info!("Updating tasks...");
         tui.update_tasks().await?;
         info!("TUI ready.");
@@ -449,6 +522,11 @@ impl Tui {
                 .border_style(Style::default().fg(Color::White))
                 .border_type(BorderType::Rounded)
                 .style(Style::default().bg(Color::Black));
+            let block = if let Some((msg, step, chars)) = &ui_state.spinner {
+                block.title_bottom(format!("{msg} {}", chars[*step]))
+            } else {
+                block
+            };
             let tree_items = ui_state.tree_items.clone();
             let tree = Tree::new(&tree_items)
                 .unwrap()
@@ -646,6 +724,14 @@ impl Tui {
                     }
                 },
                 Some(TuiEvent::StateChanged) => (),
+                Some(TuiEvent::Tick) => {
+                    self.ui_state.lock().await.tick();
+
+                }
+                Some(TuiEvent::SyncFinished) => {
+                    self.update_tasks().await.unwrap();
+                    self.ui_state.lock().await.refresh = true;
+                }
             }
         }
         let mut ui_state = self.ui_state.lock().await;
@@ -702,8 +788,14 @@ impl Tui {
                                 StepResult::Cont
                             }
                             (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
-                                self.api_cache.sync().await?;
-                                self.ui_state.lock().await.refresh = true;
+                                let api_cache = self.api_cache.clone();
+                                let event_tx = self.ui_state.lock().await.event_tx.clone();
+                                UiState::start_progress(&self.ui_state,
+                                    "syncing...", &["|", "/", "-", "\\"],
+                                    async move {
+                                        api_cache.sync().await.unwrap();
+                                        event_tx.send(TuiEvent::SyncFinished).await.unwrap();
+                                    }).await?;
                                 StepResult::Cont
                             }
                             (KeyCode::Enter, KeyModifiers::NONE) => {
@@ -796,6 +888,15 @@ impl Tui {
                         self.update_list_display().await?;
                     }
                 }
+                StepResult::Cont
+            }
+            Some(TuiEvent::Tick) => {
+                self.ui_state.lock().await.tick();
+                StepResult::Cont
+            }
+            Some(TuiEvent::SyncFinished) => {
+                self.update_tasks().await.unwrap();
+                self.ui_state.lock().await.refresh = true;
                 StepResult::Cont
             }
         };
