@@ -35,7 +35,7 @@ impl RtmDate {
                 let d = if *offset >= 0 {
                     context.now.date_naive() + chrono::Days::new(*offset as u64)
                 } else {
-                    context.now.date_naive() - chrono::Days::new(offset.abs() as u64)
+                    context.now.date_naive() - chrono::Days::new(offset.unsigned_abs() as u64)
                 };
                 d.format("%Y-%m-%d").to_string()
             }

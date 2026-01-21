@@ -68,6 +68,7 @@ struct UiState {
     tree_state: TreeState<usize>,
     list_paths: Vec<(usize, usize)>,
     tasks: RTMTasks,
+    flat_tasks: Vec<TaskSeries>,
     lists: Vec<ListDispState>,
     lists_loading: bool,
     show_task: bool,
@@ -240,6 +241,7 @@ impl Tui {
             tree_items: vec![],
             list_paths: vec![],
             tasks: Default::default(),
+            flat_tasks: Default::default(),
             lists: Default::default(),
             lists_loading: false,
             show_task,
@@ -303,21 +305,25 @@ impl Tui {
         let tasks = self.add_missing_children(tasks).await?;
         let list_pos = 0;
 
-        let flat_tasks: Vec<TaskSeries> = RtmTaskListIterator::new(&tasks)
-            .map(|(_l, t)| t.clone())
-            .collect();
+        let flat_tasks: Vec<TaskSeries> = {
+            let mut ft: Vec<_> = RtmTaskListIterator::new(&tasks)
+                .map(|(_l, t)| t.clone())
+                .collect();
+            ft.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
+            ft
+        };
 
         // Map id to (is_root, TreeItem)
         let mut task_map = HashMap::new();
         let mut children_map = HashMap::new();
         // Map by id
-        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, ts) in flat_tasks.iter().enumerate() {
             let id = &ts.task[0].id;
             task_map.insert(id, (true, TreeItem::new_leaf(ti, ts.name.clone())));
             children_map.insert(id, Vec::new());
         }
         // Record children
-        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, ts) in flat_tasks.iter().enumerate() {
             let id = &ts.task[0].id;
             if let Some(parent_task_id) = &ts.parent_task_id {
                 if !parent_task_id.is_empty() && task_map.contains_key(&parent_task_id) {
@@ -352,20 +358,18 @@ impl Tui {
             list.push(item);
         }
         let mut tree_items = Vec::new();
-        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, ts) in flat_tasks.iter().enumerate() {
             let id = &ts.task[0].id;
-            if let Some((is_root, _)) = task_map.get(id) {
-                if *is_root {
-                    let (_, item) = task_map.remove(id).unwrap();
-                    add_item(
-                        &mut task_map,
-                        &mut children_map,
-                        &flat_tasks,
-                        &mut tree_items,
-                        ti,
-                        item,
-                    );
-                }
+            if let Some((true, _)) = task_map.get(id) {
+                let (_, item) = task_map.remove(id).unwrap();
+                add_item(
+                    &mut task_map,
+                    &mut children_map,
+                    &flat_tasks,
+                    &mut tree_items,
+                    ti,
+                    item,
+                );
             }
         }
         if tree_items.is_empty() {
@@ -375,6 +379,7 @@ impl Tui {
             let mut ui_state = self.ui_state.lock().await;
             ui_state.tree_state.select_first();
             ui_state.tasks = tasks;
+            ui_state.flat_tasks = flat_tasks;
             ui_state.tree_items = tree_items;
             ui_state.list_pos = list_pos;
             ui_state.display_mode = DisplayMode::Tasks;
