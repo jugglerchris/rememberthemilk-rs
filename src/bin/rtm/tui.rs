@@ -93,7 +93,6 @@ impl UiState {
     fn tick(&mut self) {
         if let Some((_s, step, chars)) = self.spinner.as_mut() {
             *step = (*step + 1) % chars.len();
-            self.refresh = true;
         } else {
             self.stop_ticking();
         }
@@ -740,7 +739,6 @@ impl Tui {
                 }
                 Some(TuiEvent::SyncFinished) => {
                     self.update_tasks().await.unwrap();
-                    self.ui_state.lock().await.refresh = true;
                 }
             }
         }
@@ -906,7 +904,6 @@ impl Tui {
             }
             Some(TuiEvent::SyncFinished) => {
                 self.update_tasks().await.unwrap();
-                self.ui_state.lock().await.refresh = true;
                 StepResult::Cont
             }
         };
