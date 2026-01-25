@@ -3,6 +3,7 @@
 use std::{path::Path, time::Instant};
 
 use chrono::Utc;
+use log::trace;
 use sqlx::{
     migrate::{MigrateDatabase as _, MigrateError},
     Sqlite, SqlitePool,
@@ -195,8 +196,10 @@ impl TaskCache {
         let mut filter_binds = Vec::new();
         if !filt.is_empty() {
             let filter = filter::parse_filter(filt)?;
-            let mut context = filter::FilterContext::default();
-            context.now = Utc::now();
+            let mut context = filter::FilterContext {
+                now: Utc::now(),
+                ..Default::default()
+            };
             let lists = self.get_lists().await?;
             for list in lists {
                 context.lists_name_to_id.insert(list.name, list.id);
@@ -323,7 +326,12 @@ impl TaskCache {
     }
     /// Get lists
     pub async fn get_lists(&self) -> std::result::Result<Vec<RTMList>, crate::Error> {
-        self.api.get_lists().await
+        let items: Vec<(String, String)> = sqlx::query_as(r#"
+            SELECT list_id, name FROM lists"#)
+            .fetch_all(&self.pool).await?;
+        Ok(items.into_iter()
+            .map(|(id, name)| RTMList { id, name })
+            .collect())
     }
     /// Mark complete
     pub async fn mark_complete(
@@ -362,5 +370,71 @@ impl TaskCache {
         transaction_id: &str,
     ) -> std::result::Result<(), crate::Error> {
         self.api.undo_transaction(timeline, transaction_id).await
+    }
+
+    /// Return all tasks in a given list, according to the optional filter.
+    pub async fn get_tasks_in_list(&self, list_id: &str, filt: &str) -> std::result::Result<RTMTasks, crate::Error> {
+        let mut filter_clause = String::new();
+        let mut filter_binds = vec![list_id.to_string()];
+        if !filt.is_empty() {
+            let filter = filter::parse_filter(filt)?;
+            let mut context = filter::FilterContext {
+                now: Utc::now(),
+                ..Default::default()
+            };
+            let lists = self.get_lists().await?;
+            for list in lists {
+                context.lists_name_to_id.insert(list.name, list.id);
+            }
+            let (clause, binds) = filter.to_sqlite_where_clause(&context)?;
+            filter_clause = clause;
+            filter_binds.extend(binds);
+
+            log::info!("Filter clause: {filter_clause}");
+        }
+
+        #[derive(sqlx::FromRow)]
+        struct Data {
+            list_id: String,
+            ts_data: String,
+            t_data: String,
+        }
+
+        let query_str = format!(
+            r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
+             FROM taskseries ts, tasks t
+             USING (list_id, taskseries_id)
+             WHERE
+                t.deleted != TRUE AND
+                list_id = ? AND
+                {filter_clause};
+                "#
+        );
+        let mut query = sqlx::query_as(&query_str);
+        for bind in filter_binds {
+            query = query.bind(bind);
+        }
+        let data: Vec<Data> = query.fetch_all(&self.pool).await?;
+        let mut result = RTMTasks {
+            rev: Default::default(),
+            list: Vec::new(),
+        };
+        for item in data {
+            let mut list = RTMLists {
+                id: item.list_id,
+                taskseries: None,
+            };
+            let mut ts_json: serde_json::Value = serde_json::from_str(&item.ts_data).unwrap();
+            let t_json: serde_json::Value =
+                vec![serde_json::from_str::<serde_json::Value>(&item.t_data).unwrap()].into();
+            ts_json
+                .as_object_mut()
+                .unwrap()
+                .insert("task".to_string(), t_json);
+            let ts: TaskSeries = serde_json::from_value(ts_json).unwrap();
+            list.taskseries = Some(vec![ts]);
+            result.list.push(list);
+        }
+        Ok(result)
     }
 }

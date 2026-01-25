@@ -181,6 +181,7 @@ enum TuiEvent {
     StateChanged,
     Tick,
     SyncFinished,
+    ListSyncFinished,
 }
 
 struct Tui {
@@ -501,6 +502,7 @@ impl Tui {
     }
 
     async fn update_lists(&mut self) -> Result<(), anyhow::Error> {
+        let event_tx;
         {
             let mut ui_state = self.ui_state.lock().await;
             let ui_state = &mut *ui_state;
@@ -510,11 +512,17 @@ impl Tui {
 
             ui_state.list_pos = 0;
             ui_state.show_task = false;
+            event_tx = ui_state.event_tx.clone();
         }
-        tokio::spawn(Tui::fetch_lists(
-            self.api_cache.clone(),
-            std::sync::Arc::clone(&self.ui_state),
-        ));
+        let api_cache = self.api_cache.clone();
+        let ui_state_ptr = std::sync::Arc::clone(&self.ui_state);
+        UiState::start_progress(&self.ui_state,
+            "fetching lists...", &[".", "o", "O"],
+            async move {
+                Tui::fetch_lists(api_cache, ui_state_ptr).await;
+                event_tx.send(TuiEvent::ListSyncFinished).await.unwrap();
+            }
+        ).await?;
         self.update_list_display().await
     }
 
@@ -740,6 +748,7 @@ impl Tui {
                 Some(TuiEvent::SyncFinished) => {
                     self.update_tasks().await.unwrap();
                 }
+                Some(TuiEvent::ListSyncFinished) => {}
             }
         }
         let mut ui_state = self.ui_state.lock().await;
@@ -906,6 +915,9 @@ impl Tui {
                 self.update_tasks().await.unwrap();
                 StepResult::Cont
             }
+            Some(TuiEvent::ListSyncFinished) => {
+                StepResult::Cont
+            }
         };
         Ok(result)
     }
@@ -969,7 +981,7 @@ impl Tui {
             // Initially import the tasks into hash maps.
             for list in tasks.list {
                 let list_map = all_lists.entry(list.id)
-                    .or_insert_with(|| HashMap::new());
+                    .or_default();
                 if let Some(tss) = list.taskseries {
                     for ts in tss {
                         match list_map.entry(ts.id.clone()) {
@@ -1016,7 +1028,7 @@ impl Tui {
         for (list_id, list) in all_lists.into_iter() {
             let new_list = RTMLists {
                 id: list_id,
-                taskseries: Some(list.into_iter().map(|(_k, v)| v).collect()),
+                taskseries: Some(list.into_values().collect()),
             };
             result.list.push(new_list);
 
@@ -1026,12 +1038,14 @@ impl Tui {
 }
 
 async fn get_tasks(
-    _api: &rememberthemilk::cache::TaskCache,
-    _filter: &str,
-    _id: &str,
+    api_cache: &rememberthemilk::cache::TaskCache,
+    filter: &str,
+    id: &str,
 ) -> Result<RTMTasks, anyhow::Error> {
-    let _tasks = unimplemented!(); //api.get_tasks_in_list(id, filter).await?;
-                                   //Ok(tasks)
+    info!("get_tasks({filter}, {id})");
+    let tasks = api_cache.get_tasks_in_list(id, filter).await?;
+    info!("get_tasks({filter}, {id}): got {} tasks", tasks.list.len());
+    Ok(tasks)
 }
 
 impl Drop for Tui {
