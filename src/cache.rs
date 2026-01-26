@@ -3,7 +3,6 @@
 use std::{path::Path, time::Instant};
 
 use chrono::Utc;
-use log::trace;
 use sqlx::{
     migrate::{MigrateDatabase as _, MigrateError},
     Sqlite, SqlitePool,
