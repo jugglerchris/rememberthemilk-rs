@@ -1,8 +1,10 @@
 #![deny(warnings)]
 use anyhow::bail;
 use clap::Parser;
+#[cfg(feature = "cache")]
 use etcetera::{AppStrategy, AppStrategyArgs};
 use log::{info, trace};
+#[cfg(feature = "cache")]
 use rememberthemilk::cache::TaskCache;
 use rememberthemilk::{Perms, API};
 use serde::{Deserialize, Serialize};
@@ -29,34 +31,6 @@ impl Default for Settings {
             filter: "status:incomplete AND (dueBefore:today OR due:today)".into(),
         }
     }
-}
-
-#[cfg(feature = "tui")]
-fn tail_end(input: &str, width: usize) -> String {
-    let tot_width = unicode_width::UnicodeWidthStr::width(input);
-    if tot_width <= width {
-        // It fits, no problem.
-        return input.into();
-    }
-    // Otherwise, trim off the start, making space for a ...
-    let mut result = "…".to_string();
-    let elipsis_width = unicode_width::UnicodeWidthStr::width(result.as_str());
-    let space_needed = tot_width - (width - elipsis_width);
-
-    let mut removed_space = 0;
-    let mut ci = input.char_indices();
-
-    for (_, c) in &mut ci {
-        if let Some(w) = unicode_width::UnicodeWidthChar::width(c) {
-            removed_space += w;
-            if removed_space >= space_needed {
-                break;
-            }
-        }
-    }
-    let (start, _) = ci.next().unwrap();
-    result.push_str(&input[start..]);
-    result
 }
 
 #[derive(Parser, Debug)]
@@ -171,6 +145,7 @@ async fn get_rtm_api(perm: Perms) -> Result<API, anyhow::Error> {
     Ok(api)
 }
 
+#[cfg(feature = "cache")]
 async fn get_rtm_cache(api: API) -> Result<TaskCache, anyhow::Error> {
     let strategy = etcetera::choose_app_strategy(AppStrategyArgs {
         top_level_domain: "org".into(),

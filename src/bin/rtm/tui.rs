@@ -22,7 +22,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::StreamExt;
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
-use crate::{get_default_filter, get_rtm_api, get_rtm_cache, tail_end};
+use crate::{get_default_filter, get_rtm_api, get_rtm_cache};
 
 static HELP_TEXT: &str = r#"Key bindings:
 
@@ -196,6 +196,34 @@ enum StepResult {
     Cont,
     End,
 }
+
+fn tail_end(input: &str, width: usize) -> String {
+    let tot_width = unicode_width::UnicodeWidthStr::width(input);
+    if tot_width <= width {
+        // It fits, no problem.
+        return input.into();
+    }
+    // Otherwise, trim off the start, making space for a ...
+    let mut result = "…".to_string();
+    let elipsis_width = unicode_width::UnicodeWidthStr::width(result.as_str());
+    let space_needed = tot_width - (width - elipsis_width);
+
+    let mut removed_space = 0;
+    let mut ci = input.char_indices();
+
+    for (_, c) in &mut ci {
+        if let Some(w) = unicode_width::UnicodeWidthChar::width(c) {
+            removed_space += w;
+            if removed_space >= space_needed {
+                break;
+            }
+        }
+    }
+    let (start, _) = ci.next().unwrap();
+    result.push_str(&input[start..]);
+    result
+}
+
 impl Tui {
     pub async fn new() -> Result<Tui, anyhow::Error> {
         info!("Setting up terminal...");
@@ -227,7 +255,7 @@ impl Tui {
             });
         }
 
-        let (tick_tx, tick_rx) = tokio::sync::mpsc::channel(1);
+        let (tick_tx, mut tick_rx) = tokio::sync::mpsc::channel(1);
         info!("Getting API instance...");
         let api = get_rtm_api(Perms::Delete).await?;
         let api_cache = get_rtm_cache(api).await?;
@@ -270,7 +298,6 @@ impl Tui {
 
         {
             let ui_state = Arc::clone(&tui.ui_state);
-            let mut tick_rx = tick_rx;
             tokio::spawn(async move {
                 loop {
                     let _ = tick_rx.recv().await;
@@ -502,8 +529,7 @@ impl Tui {
     }
 
     async fn update_lists(&mut self) -> Result<(), anyhow::Error> {
-        let event_tx;
-        {
+        let event_tx = {
             let mut ui_state = self.ui_state.lock().await;
             let ui_state = &mut *ui_state;
             ui_state.display_mode = DisplayMode::Lists;
@@ -512,8 +538,8 @@ impl Tui {
 
             ui_state.list_pos = 0;
             ui_state.show_task = false;
-            event_tx = ui_state.event_tx.clone();
-        }
+            ui_state.event_tx.clone()
+        };
         let api_cache = self.api_cache.clone();
         let ui_state_ptr = std::sync::Arc::clone(&self.ui_state);
         UiState::start_progress(&self.ui_state,

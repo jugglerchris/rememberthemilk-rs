@@ -1,8 +1,8 @@
 //! Local caching of Remember The Milk entries.
 
-use std::{path::Path, time::Instant};
+use std::path::Path;
 
-use chrono::Utc;
+use chrono::{Local, Utc};
 use sqlx::{
     migrate::{MigrateDatabase as _, MigrateError},
     Sqlite, SqlitePool,
@@ -79,9 +79,7 @@ impl TaskCache {
         log::info!("last_sync: {last_sync:?}");
         let new_last_sync = Utc::now();
         let mut tasks = self.api.get_tasks_filtered_sync_json("", last_sync).await?;
-        //dbg!(&tasks);
 
-        let now = Instant::now();
         let mut tx = self.pool.begin().await?;
         let lists = tasks.get_mut("list");
         if let Some(JsonValue::Array(values)) = lists {
@@ -169,7 +167,6 @@ impl TaskCache {
                 .await?;
         }
         tx.commit().await?;
-        log::info!("Inserting data took: {} seconds", now.elapsed().as_secs());
 
         sqlx::query(
             "INSERT INTO task_meta(id, last_sync)
@@ -196,7 +193,7 @@ impl TaskCache {
         if !filt.is_empty() {
             let filter = filter::parse_filter(filt)?;
             let mut context = filter::FilterContext {
-                now: Utc::now(),
+                now: Local::now(),
                 ..Default::default()
             };
             let lists = self.get_lists().await?;
@@ -378,7 +375,7 @@ impl TaskCache {
         if !filt.is_empty() {
             let filter = filter::parse_filter(filt)?;
             let mut context = filter::FilterContext {
-                now: Utc::now(),
+                now: Local::now(),
                 ..Default::default()
             };
             let lists = self.get_lists().await?;
