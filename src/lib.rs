@@ -1136,7 +1136,8 @@ impl API {
         taskseries: &TaskSeries,
         task: &Task,
     ) -> Result<Option<RTMTransaction>, Error> {
-        self.mark_complete_id(timeline, &list.id, &taskseries.id, &task.id).await
+        self.mark_complete_id(timeline, &list.id, &taskseries.id, &task.id)
+            .await
     }
 
     /// Mark a task as complete, passing only ids.

@@ -32,33 +32,22 @@ pub enum RtmDate {
     NextTime(chrono::NaiveTime),
     /// A month/day indicating the next one coming.
     /// Both month and day start at 1.
-    NextDate {
-        month: u8,
-        day: u8,
-    },
+    NextDate { month: u8, day: u8 },
     /// A month/day indicating the next one coming.
     /// Both month and day start at 1.  Indicates the
     /// time at the beginning of the day.
-    NextDateStart {
-        month: u8,
-        day: u8,
-    },
+    NextDateStart { month: u8, day: u8 },
     /// A month/day indicating the next one coming.
     /// Both month and day start at 1.  Indicates the
     /// time at the end of the day.
-    NextDateEnd {
-        month: u8,
-        day: u8,
-    },
+    NextDateEnd { month: u8, day: u8 },
 }
 
 impl RtmDate {
     /// Convert to a time suitable for use in SQL statements.
     fn to_sql_date(&self, context: &FilterContext) -> String {
         match self {
-            RtmDate::RelativeTime(time_delta) => {
-                (context.now + *time_delta).to_rfc3339()
-            }
+            RtmDate::RelativeTime(time_delta) => (context.now + *time_delta).to_rfc3339(),
             RtmDate::RelativeDay(offset) => {
                 let d = if *offset >= 0 {
                     context.now.date_naive() + chrono::Days::new(*offset as u64)
@@ -75,39 +64,39 @@ impl RtmDate {
                 };
                 d.format("%Y-%m-%dT00:00:00").to_string()
             }
-            RtmDate::NextDate{ month, day } => {
+            RtmDate::NextDate { month, day } => {
                 let today = context.now.date_naive();
                 let m32 = *month as u32;
                 let day32 = *day as u32;
-                let d = if today.month() > m32 ||
-                    ((today.month() == m32) && (today.day() > day32)) {
-                       NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
+                let d = if today.month() > m32 || ((today.month() == m32) && (today.day() > day32))
+                {
+                    NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
                 } else {
-                       NaiveDate::from_ymd_opt(today.year(), m32, day32).unwrap()
+                    NaiveDate::from_ymd_opt(today.year(), m32, day32).unwrap()
                 };
                 d.format("%Y-%m-%d").to_string()
             }
-            RtmDate::NextDateStart{ month, day } => {
+            RtmDate::NextDateStart { month, day } => {
                 let today = context.now.date_naive();
                 let m32 = *month as u32;
                 let day32 = *day as u32;
-                let d = if today.month() > m32 ||
-                    ((today.month() == m32) && (today.day() > day32)) {
-                       NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
+                let d = if today.month() > m32 || ((today.month() == m32) && (today.day() > day32))
+                {
+                    NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
                 } else {
-                       NaiveDate::from_ymd_opt(today.year(), m32, day32).unwrap()
+                    NaiveDate::from_ymd_opt(today.year(), m32, day32).unwrap()
                 };
                 d.format("%Y-%m-%dT00:00:00").to_string()
             }
-            RtmDate::NextDateEnd{ month, day } => {
+            RtmDate::NextDateEnd { month, day } => {
                 let today = context.now.date_naive();
                 let m32 = *month as u32;
                 let day32 = *day as u32;
-                let d = if today.month() > m32 ||
-                    ((today.month() == m32) && (today.day() > day32)) {
-                       NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
+                let d = if today.month() > m32 || ((today.month() == m32) && (today.day() > day32))
+                {
+                    NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
                 } else {
-                       NaiveDate::from_ymd_opt(today.year(), m32, day32).unwrap()
+                    NaiveDate::from_ymd_opt(today.year(), m32, day32).unwrap()
                 };
                 d.format("%Y-%m-%dT23:59:59").to_string()
             }
@@ -120,12 +109,8 @@ impl RtmDate {
                 };
                 nt.to_rfc3339()
             }
-            RtmDate::AbsoluteDate(d) => {
-                d.format("%Y-%m-%d").to_string()
-            }
-            RtmDate::AbsoluteDatetime(dt) => {
-                Local.from_local_datetime(dt).unwrap().to_rfc3339()
-            }
+            RtmDate::AbsoluteDate(d) => d.format("%Y-%m-%d").to_string(),
+            RtmDate::AbsoluteDatetime(dt) => Local.from_local_datetime(dt).unwrap().to_rfc3339(),
         }
     }
 
@@ -136,9 +121,17 @@ impl RtmDate {
         match self {
             RelativeDay(offs) => RelativeDayStart(*offs),
             AbsoluteDate(d) => AbsoluteDatetime(d.and_hms_opt(0, 0, 0).unwrap()),
-            NextDate { month, day } => NextDateStart { month: *month, day: *day },
+            NextDate { month, day } => NextDateStart {
+                month: *month,
+                day: *day,
+            },
             // If we have a time, nothing changes.
-            d@(RelativeTime(_) | RelativeDayStart(_) | AbsoluteDatetime(_) | NextTime(_) | NextDateStart { .. } | NextDateEnd { .. }) => *d,
+            d @ (RelativeTime(_)
+            | RelativeDayStart(_)
+            | AbsoluteDatetime(_)
+            | NextTime(_)
+            | NextDateStart { .. }
+            | NextDateEnd { .. }) => *d,
         }
     }
 
@@ -149,12 +142,19 @@ impl RtmDate {
         match self {
             RelativeDay(offs) => RelativeDayStart(*offs + 1),
             AbsoluteDate(d) => AbsoluteDatetime(d.and_hms_opt(23, 59, 59).unwrap()),
-            NextDate { month, day } => NextDateEnd { month: *month, day: *day },
+            NextDate { month, day } => NextDateEnd {
+                month: *month,
+                day: *day,
+            },
             // If we have a time, nothing changes.
-            d@(RelativeTime(_) | RelativeDayStart(_) | AbsoluteDatetime(_) | NextTime(_) | NextDateStart { .. } | NextDateEnd { .. }) => *d,
+            d @ (RelativeTime(_)
+            | RelativeDayStart(_)
+            | AbsoluteDatetime(_)
+            | NextTime(_)
+            | NextDateStart { .. }
+            | NextDateEnd { .. }) => *d,
         }
     }
-
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -200,7 +200,10 @@ pub struct FilterContext {
 impl RtmFilter {
     /// Return a SQL expression for a where clause, and some values to bind.
     /// The values should correspond to '?' markers in the expression.
-    pub(crate) fn to_sqlite_where_clause(&self, context: &FilterContext) -> Result<(String, Vec<String>), anyhow::Error> {
+    pub(crate) fn to_sqlite_where_clause(
+        &self,
+        context: &FilterContext,
+    ) -> Result<(String, Vec<String>), anyhow::Error> {
         let result = match self {
             RtmFilter::Complete(val) => {
                 if *val {
@@ -353,9 +356,7 @@ impl<'a> Term<'a> {
                 }
             }
             "list" => RtmFilter::List(self.value.to_string()),
-            "tag" => {
-                RtmFilter::Tag(self.value.to_string())
-            }
+            "tag" => RtmFilter::Tag(self.value.to_string()),
             "givenBy" => {
                 // We don't seem to have enough information in the API
                 // yet.
@@ -400,9 +401,7 @@ impl<'a> SubExpr<'a> {
                     Ok(RtmFilter::Or(filts))
                 }
             }
-            SubExpr::Not(sub_expr) => {
-                Ok(RtmFilter::Not(Box::new(sub_expr.to_filt()?)))
-            }
+            SubExpr::Not(sub_expr) => Ok(RtmFilter::Not(Box::new(sub_expr.to_filt()?))),
         }
     }
 }
@@ -435,7 +434,6 @@ fn parse_not(s: &str) -> nom::IResult<&str, SubExpr<'_>> {
     let (rest, _) = space1(rest)?;
     let (rest, subexpr) = parse_term(rest)?;
     Ok((rest, SubExpr::Not(Box::new(subexpr))))
-
 }
 
 fn trace_parse_not(s: &str) -> nom::IResult<&str, SubExpr<'_>> {
@@ -529,7 +527,8 @@ fn parse_mon(s: &str) -> nom::IResult<&str, u8> {
         map(tag_no_case("oct"), |_| 10),
         map(tag_no_case("nov"), |_| 11),
         map(tag_no_case("dec"), |_| 12),
-    )).parse(s)
+    ))
+    .parse(s)
 }
 
 fn parse_day(s: &str) -> nom::IResult<&str, u8> {
@@ -556,23 +555,36 @@ fn parse_date_month_day(s: &str) -> nom::IResult<&str, RtmDate> {
 }
 
 fn parse_date_yyyy_mm_dd(s: &str) -> nom::IResult<&str, RtmDate> {
-    let (rest, y) = map_res(take_while_m_n(4, 4, nom::AsChar::is_dec_digit), str::parse).parse(s)?;
+    let (rest, y) =
+        map_res(take_while_m_n(4, 4, nom::AsChar::is_dec_digit), str::parse).parse(s)?;
     let (rest, _) = tag("-")(rest)?;
-    let (rest, m) = map_res(take_while_m_n(2, 2, nom::AsChar::is_dec_digit), str::parse).parse(rest)?;
+    let (rest, m) =
+        map_res(take_while_m_n(2, 2, nom::AsChar::is_dec_digit), str::parse).parse(rest)?;
     let (rest, _) = tag("-")(rest)?;
-    let (rest, d) = map_res(take_while_m_n(2, 2, nom::AsChar::is_dec_digit), str::parse).parse(rest)?;
+    let (rest, d) =
+        map_res(take_while_m_n(2, 2, nom::AsChar::is_dec_digit), str::parse).parse(rest)?;
 
-    Ok((rest, RtmDate::AbsoluteDate(NaiveDate::from_ymd_opt(y, m, d)
-                .ok_or_else(|| nom::Err::Error(nom::error::Error::new(s, nom::error::ErrorKind::Fail)))?)))
+    Ok((
+        rest,
+        RtmDate::AbsoluteDate(NaiveDate::from_ymd_opt(y, m, d).ok_or_else(|| {
+            nom::Err::Error(nom::error::Error::new(s, nom::error::ErrorKind::Fail))
+        })?),
+    ))
 }
 
 fn parse_date_hhmm(s: &str) -> nom::IResult<&str, RtmDate> {
-    let (rest, h) = map_res(take_while_m_n(1, 2, nom::AsChar::is_dec_digit), str::parse).parse(s)?;
+    let (rest, h) =
+        map_res(take_while_m_n(1, 2, nom::AsChar::is_dec_digit), str::parse).parse(s)?;
     let (rest, _) = tag(":")(rest)?;
-    let (rest, m) = map_res(take_while_m_n(2, 2, nom::AsChar::is_dec_digit), str::parse).parse(rest)?;
+    let (rest, m) =
+        map_res(take_while_m_n(2, 2, nom::AsChar::is_dec_digit), str::parse).parse(rest)?;
 
-    Ok((rest, RtmDate::NextTime(chrono::NaiveTime::from_hms_opt(h, m, 0)
-                .ok_or_else(|| nom::Err::Error(nom::error::Error::new(s, nom::error::ErrorKind::Fail)))?)))
+    Ok((
+        rest,
+        RtmDate::NextTime(chrono::NaiveTime::from_hms_opt(h, m, 0).ok_or_else(|| {
+            nom::Err::Error(nom::error::Error::new(s, nom::error::ErrorKind::Fail))
+        })?),
+    ))
 }
 
 fn parse_date_days(s: &str) -> nom::IResult<&str, RtmDate> {
@@ -605,22 +617,22 @@ fn parse_date_hours(s: &str) -> nom::IResult<&str, RtmDate> {
 
 fn parse_date(s: &str) -> Result<RtmDate, anyhow::Error> {
     expr_consuming(alt((
-                parse_date_today,
-                parse_date_tomorrow,
-                parse_date_yesterday,
-                parse_date_day_month,
-                parse_date_month_day,
-                parse_date_yyyy_mm_dd,
-                parse_date_hhmm,
-                parse_date_mins,
-                parse_date_hours,
-                parse_date_days,
-                parse_date_weeks,
-            ))).parse(s)
-        .map(|(_rest, result)| result)
-        .map_err(|e| anyhow!("Unknown date format: {e}"))
+        parse_date_today,
+        parse_date_tomorrow,
+        parse_date_yesterday,
+        parse_date_day_month,
+        parse_date_month_day,
+        parse_date_yyyy_mm_dd,
+        parse_date_hhmm,
+        parse_date_mins,
+        parse_date_hours,
+        parse_date_days,
+        parse_date_weeks,
+    )))
+    .parse(s)
+    .map(|(_rest, result)| result)
+    .map_err(|e| anyhow!("Unknown date format: {e}"))
 }
-
 
 struct ExprConsuming<F> {
     parser: F,
@@ -663,7 +675,11 @@ where
 
 fn parse_expr(filter: &str) -> nom::IResult<&'_ str, SubExpr<'_>> {
     log::trace!("parse_expr({filter:?})");
-    let result = alt((expr_consuming(trace_parse_ands), expr_consuming(trace_parse_ors))).parse(filter);
+    let result = alt((
+        expr_consuming(trace_parse_ands),
+        expr_consuming(trace_parse_ors),
+    ))
+    .parse(filter);
     log::trace!("parse_expr => {result:?}");
     result
 }
@@ -686,7 +702,7 @@ pub fn parse_filter(filter: &str) -> Result<RtmFilter, anyhow::Error> {
 mod tests {
     use crate::cache::filter::RtmDate;
 
-    use super::{parse_filter, RtmFilter, parse_date};
+    use super::{parse_date, parse_filter, RtmFilter};
     use chrono::FixedOffset;
     use RtmFilter::*;
 
@@ -727,7 +743,11 @@ mod tests {
             ),
             (
                 "not name:a AND name:b AND not name:c",
-                And(vec![Not(Box::new(Name("a".into()))), Name("b".into()), Not(Box::new(Name("c".into())))]),
+                And(vec![
+                    Not(Box::new(Name("a".into()))),
+                    Name("b".into()),
+                    Not(Box::new(Name("c".into()))),
+                ]),
             ),
             ("NOT name:a", Not(Box::new(Name("a".into())))),
             ("(NOT name:a)", Not(Box::new(Name("a".into())))),
@@ -745,18 +765,29 @@ mod tests {
     fn test_filter_sql() -> Result<(), anyhow::Error> {
         log_init();
         let context = super::FilterContext {
-lists_name_to_id: [
-                      ("foo".to_string(), "12345678".to_string()),
-                      ("My List".to_string(), "87654321".to_string()),
-].into(),
-            now: chrono::DateTime::<FixedOffset>::parse_from_rfc3339("2000-01-01T01:02:03Z").unwrap().into(),
+            lists_name_to_id: [
+                ("foo".to_string(), "12345678".to_string()),
+                ("My List".to_string(), "87654321".to_string()),
+            ]
+            .into(),
+            now: chrono::DateTime::<FixedOffset>::parse_from_rfc3339("2000-01-01T01:02:03Z")
+                .unwrap()
+                .into(),
         };
 
         for (filt_s, expected, expected_binds) in &[
-            ("status:completed", r#"jsonb_extract(t.data, "$.completed") <> """#, &[][..]),
+            (
+                "status:completed",
+                r#"jsonb_extract(t.data, "$.completed") <> """#,
+                &[][..],
+            ),
             ("list:foo", r#"t.list_id = ?"#, &["12345678"]),
             (r#"list:"My List""#, r#"t.list_id = ?"#, &["87654321"]),
-            ("name:foo", r#"jsonb_extract(ts.data, "$.name") LIKE ?"#, &["%foo%"]),
+            (
+                "name:foo",
+                r#"jsonb_extract(ts.data, "$.name") LIKE ?"#,
+                &["%foo%"],
+            ),
         ] {
             let filt = parse_filter(filt_s)?;
             let (clause, binds) = filt.to_sqlite_where_clause(&context)?;
@@ -778,14 +809,29 @@ lists_name_to_id: [
             ("tomorrow", RtmDate::RelativeDay(1)),
             ("tom", RtmDate::RelativeDay(1)),
             ("yesterday", RtmDate::RelativeDay(-1)),
-            ("25 Apr", RtmDate::NextDate { month: 4, day: 25}),
-            ("Apr 25", RtmDate::NextDate { month: 4, day: 25}),
-            ("2000-01-02", RtmDate::AbsoluteDate(chrono::NaiveDate::from_ymd_opt(2000, 1, 2).unwrap())),
-            ("18:07", RtmDate::NextTime(chrono::NaiveTime::from_hms_opt(18, 7, 0).unwrap())),
+            ("25 Apr", RtmDate::NextDate { month: 4, day: 25 }),
+            ("Apr 25", RtmDate::NextDate { month: 4, day: 25 }),
+            (
+                "2000-01-02",
+                RtmDate::AbsoluteDate(chrono::NaiveDate::from_ymd_opt(2000, 1, 2).unwrap()),
+            ),
+            (
+                "18:07",
+                RtmDate::NextTime(chrono::NaiveTime::from_hms_opt(18, 7, 0).unwrap()),
+            ),
             ("1 hour", RtmDate::RelativeTime(chrono::TimeDelta::hours(1))),
-            ("2 hours", RtmDate::RelativeTime(chrono::TimeDelta::hours(2))),
-            ("1 min", RtmDate::RelativeTime(chrono::TimeDelta::minutes(1))),
-            ("2 mins", RtmDate::RelativeTime(chrono::TimeDelta::minutes(2))),
+            (
+                "2 hours",
+                RtmDate::RelativeTime(chrono::TimeDelta::hours(2)),
+            ),
+            (
+                "1 min",
+                RtmDate::RelativeTime(chrono::TimeDelta::minutes(1)),
+            ),
+            (
+                "2 mins",
+                RtmDate::RelativeTime(chrono::TimeDelta::minutes(2)),
+            ),
             ("1 day", RtmDate::RelativeDay(1)),
             ("3 days", RtmDate::RelativeDay(3)),
             ("1 week", RtmDate::RelativeDay(7)),
@@ -795,6 +841,5 @@ lists_name_to_id: [
             assert_eq!(parse_date(s)?, *d);
         }
         Ok(())
-
     }
 }

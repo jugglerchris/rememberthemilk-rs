@@ -156,15 +156,15 @@ impl TaskCache {
         let lists = self.api.get_lists().await?;
         for list in lists {
             sqlx::query(
-                    "INSERT INTO lists(list_id, name)
+                "INSERT INTO lists(list_id, name)
                     VALUES(?1, ?2)
                     ON CONFLICT DO UPDATE SET name = ?2;
                     ",
-                    )
-                .bind(&list.id)
-                .bind(&list.name)
-                .execute(&mut *tx)
-                .await?;
+            )
+            .bind(&list.id)
+            .bind(&list.name)
+            .execute(&mut *tx)
+            .await?;
         }
         tx.commit().await?;
 
@@ -263,8 +263,7 @@ impl TaskCache {
             t_data: String,
         }
 
-        let query = 
-            r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
+        let query = r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
              USING (list_id, taskseries_id)
              WHERE
@@ -274,7 +273,8 @@ impl TaskCache {
                 "#;
         let data: Vec<Data> = sqlx::query_as(query)
             .bind(parent_id)
-            .fetch_all(&self.pool).await?;
+            .fetch_all(&self.pool)
+            .await?;
         let mut result = RTMTasks {
             rev: Default::default(),
             list: Vec::new(),
@@ -322,10 +322,14 @@ impl TaskCache {
     }
     /// Get lists
     pub async fn get_lists(&self) -> std::result::Result<Vec<RTMList>, crate::Error> {
-        let items: Vec<(String, String)> = sqlx::query_as(r#"
-            SELECT list_id, name FROM lists"#)
-            .fetch_all(&self.pool).await?;
-        Ok(items.into_iter()
+        let items: Vec<(String, String)> = sqlx::query_as(
+            r#"
+            SELECT list_id, name FROM lists"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(items
+            .into_iter()
             .map(|(id, name)| RTMList { id, name })
             .collect())
     }
@@ -369,7 +373,11 @@ impl TaskCache {
     }
 
     /// Return all tasks in a given list, according to the optional filter.
-    pub async fn get_tasks_in_list(&self, list_id: &str, filt: &str) -> std::result::Result<RTMTasks, crate::Error> {
+    pub async fn get_tasks_in_list(
+        &self,
+        list_id: &str,
+        filt: &str,
+    ) -> std::result::Result<RTMTasks, crate::Error> {
         let mut filter_clause = String::new();
         let mut filter_binds = vec![list_id.to_string()];
         if !filt.is_empty() {

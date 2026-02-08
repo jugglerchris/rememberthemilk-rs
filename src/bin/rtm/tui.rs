@@ -15,9 +15,9 @@ use ratatui::{
 use rememberthemilk::{
     cache::TaskCache, Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries,
 };
-use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 use std::process::ExitCode;
 use std::{borrow::Cow, io};
+use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::StreamExt;
 use tui_tree_widget::{Tree, TreeItem, TreeState};
@@ -99,8 +99,12 @@ impl UiState {
     }
 
     // Start a tick
-    async fn start_progress<F: Future + Send + 'static>(ui: &std::sync::Arc<tokio::sync::Mutex<Self>>,
-        message: &str, spinner: &'static [&'static str], task: F) -> anyhow::Result<()> {
+    async fn start_progress<F: Future + Send + 'static>(
+        ui: &std::sync::Arc<tokio::sync::Mutex<Self>>,
+        message: &str,
+        spinner: &'static [&'static str],
+        task: F,
+    ) -> anyhow::Result<()> {
         let mut this = ui.lock().await;
         this.tick_running = true;
         this.spinner = Some((message.into(), 0, spinner));
@@ -235,7 +239,6 @@ impl Tui {
         let mut events = crossterm::event::EventStream::new();
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(10);
 
-
         {
             let event_tx = event_tx.clone();
             info!("Spawning event task...");
@@ -311,7 +314,6 @@ impl Tui {
                             if ui_state.tick_running {
                                 event_tx.send(TuiEvent::Tick).await.unwrap();
                             } else {
-
                                 break;
                             }
                         }
@@ -542,13 +544,16 @@ impl Tui {
         };
         let api_cache = self.api_cache.clone();
         let ui_state_ptr = std::sync::Arc::clone(&self.ui_state);
-        UiState::start_progress(&self.ui_state,
-            "fetching lists...", &[".", "o", "O"],
+        UiState::start_progress(
+            &self.ui_state,
+            "fetching lists...",
+            &[".", "o", "O"],
             async move {
                 Tui::fetch_lists(api_cache, ui_state_ptr).await;
                 event_tx.send(TuiEvent::ListSyncFinished).await.unwrap();
-            }
-        ).await?;
+            },
+        )
+        .await?;
         self.update_list_display().await
     }
 
@@ -594,9 +599,7 @@ impl Tui {
                     .style(Style::default().bg(Color::Black));
                 let tree_pos = ui_state.tree_state.selected();
                 let series = match ui_state.display_mode {
-                    DisplayMode::Tasks => tree_pos.last().map(|pos| {
-                        &ui_state.flat_tasks[*pos].ts
-                    }),
+                    DisplayMode::Tasks => tree_pos.last().map(|pos| &ui_state.flat_tasks[*pos].ts),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
                             Some(
@@ -769,7 +772,6 @@ impl Tui {
                 Some(TuiEvent::StateChanged) => (),
                 Some(TuiEvent::Tick) => {
                     self.ui_state.lock().await.tick();
-
                 }
                 Some(TuiEvent::SyncFinished) => {
                     self.update_tasks().await.unwrap();
@@ -833,12 +835,16 @@ impl Tui {
                             (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
                                 let api_cache = self.api_cache.clone();
                                 let event_tx = self.ui_state.lock().await.event_tx.clone();
-                                UiState::start_progress(&self.ui_state,
-                                    "syncing...", &["|", "/", "-", "\\"],
+                                UiState::start_progress(
+                                    &self.ui_state,
+                                    "syncing...",
+                                    &["|", "/", "-", "\\"],
                                     async move {
                                         api_cache.sync().await.unwrap();
                                         event_tx.send(TuiEvent::SyncFinished).await.unwrap();
-                                    }).await?;
+                                    },
+                                )
+                                .await?;
                                 StepResult::Cont
                             }
                             (KeyCode::Enter, KeyModifiers::NONE) => {
@@ -941,9 +947,7 @@ impl Tui {
                 self.update_tasks().await.unwrap();
                 StepResult::Cont
             }
-            Some(TuiEvent::ListSyncFinished) => {
-                StepResult::Cont
-            }
+            Some(TuiEvent::ListSyncFinished) => StepResult::Cont,
         };
         Ok(result)
     }
@@ -1003,11 +1007,11 @@ impl Tui {
         use std::collections::hash_map::Entry;
         let mut all_lists = HashMap::new();
 
-        let update_lists = |all_lists: &mut HashMap<String, HashMap<String, TaskSeries>>, tasks: RTMTasks| {
+        let update_lists = |all_lists: &mut HashMap<String, HashMap<String, TaskSeries>>,
+                            tasks: RTMTasks| {
             // Initially import the tasks into hash maps.
             for list in tasks.list {
-                let list_map = all_lists.entry(list.id)
-                    .or_default();
+                let list_map = all_lists.entry(list.id).or_default();
                 if let Some(tss) = list.taskseries {
                     for ts in tss {
                         match list_map.entry(ts.id.clone()) {
@@ -1057,7 +1061,6 @@ impl Tui {
                 taskseries: Some(list.into_values().collect()),
             };
             result.list.push(new_list);
-
         }
         Ok(result)
     }
