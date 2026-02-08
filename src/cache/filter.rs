@@ -45,20 +45,20 @@ pub enum RtmDate {
 
 impl RtmDate {
     /// Convert to a time suitable for use in SQL statements.
-    fn to_sql_date(&self, context: &FilterContext) -> String {
+    fn to_sql_date(self, context: &FilterContext) -> String {
         match self {
-            RtmDate::RelativeTime(time_delta) => (context.now + *time_delta).to_rfc3339(),
+            RtmDate::RelativeTime(time_delta) => (context.now + time_delta).to_rfc3339(),
             RtmDate::RelativeDay(offset) => {
-                let d = if *offset >= 0 {
-                    context.now.date_naive() + chrono::Days::new(*offset as u64)
+                let d = if offset >= 0 {
+                    context.now.date_naive() + chrono::Days::new(offset as u64)
                 } else {
                     context.now.date_naive() - chrono::Days::new(offset.unsigned_abs() as u64)
                 };
                 d.format("%Y-%m-%d").to_string()
             }
             RtmDate::RelativeDayStart(offset) => {
-                let d = if *offset >= 0 {
-                    context.now.date_naive() + chrono::Days::new(*offset as u64)
+                let d = if offset >= 0 {
+                    context.now.date_naive() + chrono::Days::new(offset as u64)
                 } else {
                     context.now.date_naive() - chrono::Days::new(offset.unsigned_abs() as u64)
                 };
@@ -66,8 +66,8 @@ impl RtmDate {
             }
             RtmDate::NextDate { month, day } => {
                 let today = context.now.date_naive();
-                let m32 = *month as u32;
-                let day32 = *day as u32;
+                let m32 = month as u32;
+                let day32 = day as u32;
                 let d = if today.month() > m32 || ((today.month() == m32) && (today.day() > day32))
                 {
                     NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
@@ -78,8 +78,8 @@ impl RtmDate {
             }
             RtmDate::NextDateStart { month, day } => {
                 let today = context.now.date_naive();
-                let m32 = *month as u32;
-                let day32 = *day as u32;
+                let m32 = month as u32;
+                let day32 = day as u32;
                 let d = if today.month() > m32 || ((today.month() == m32) && (today.day() > day32))
                 {
                     NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
@@ -90,8 +90,8 @@ impl RtmDate {
             }
             RtmDate::NextDateEnd { month, day } => {
                 let today = context.now.date_naive();
-                let m32 = *month as u32;
-                let day32 = *day as u32;
+                let m32 = month as u32;
+                let day32 = day as u32;
                 let d = if today.month() > m32 || ((today.month() == m32) && (today.day() > day32))
                 {
                     NaiveDate::from_ymd_opt(today.year() + 1, m32, day32).unwrap()
@@ -101,7 +101,7 @@ impl RtmDate {
                 d.format("%Y-%m-%dT23:59:59").to_string()
             }
             RtmDate::NextTime(t) => {
-                let n_today = context.now.with_time(*t).unwrap();
+                let n_today = context.now.with_time(t).unwrap();
                 let nt = if n_today > context.now {
                     n_today
                 } else {
@@ -110,7 +110,7 @@ impl RtmDate {
                 nt.to_rfc3339()
             }
             RtmDate::AbsoluteDate(d) => d.format("%Y-%m-%d").to_string(),
-            RtmDate::AbsoluteDatetime(dt) => Local.from_local_datetime(dt).unwrap().to_rfc3339(),
+            RtmDate::AbsoluteDatetime(dt) => Local.from_local_datetime(&dt).unwrap().to_rfc3339(),
         }
     }
 
