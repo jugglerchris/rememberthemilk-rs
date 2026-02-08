@@ -1,5 +1,6 @@
 # Changelog
 
+<!--
 Possible log types:
 
 - `[added]` for new features.
@@ -8,6 +9,16 @@ Possible log types:
 - `[removed]` for deprecated features removed in this release.
 - `[fixed]` for any bug fixes.
 - `[security]` to invite users to upgrade in case of vulnerabilities.
+-->
+
+### 0.4.11
+
+- [added] Local task cache in an sqlite database.  This makes the TUI mode
+  much more responsive, and makes it reasonable to ensure that child tasks are
+  included in the UI without many slow requests.
+  - sync command in the CLI to update the cache
+  - the tui uses the cache, with ctrl-R to sync.
+  - a subset of RTM filter syntax is supported by the cache.
 
 ### 0.4.10
 

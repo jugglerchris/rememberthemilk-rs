@@ -55,8 +55,11 @@
 //! ```
 use anyhow::{bail, Error};
 use chrono::{DateTime, Duration, NaiveTime, Utc};
-use serde::{de::Unexpected, Deserialize, Serialize};
-use serde_json::from_str;
+use serde::{de::DeserializeOwned, de::Unexpected, Deserialize, Serialize};
+use serde_json::{from_reader, from_str};
+
+#[cfg(feature = "cache")]
+pub mod cache;
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "err")]
@@ -807,17 +810,14 @@ impl API {
         self.get_tasks_filtered("").await
     }
 
-    /// Retrieve a filtered list of tasks.
-    ///
-    /// The `filter` is a string in the [format used by
-    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
-    /// for example to retrieve tasks which have not yet been completed and
-    /// are due today or in the past, you could use:
-    ///
-    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
-    ///
-    /// Requires a valid user authentication token.
-    pub async fn get_tasks_filtered(&self, filter: &str) -> Result<RTMTasks, Error> {
+    async fn get_tasks_filtered_sync_typed<T>(
+        &self,
+        filter: &str,
+        last_sync: Option<chrono::DateTime<Utc>>,
+    ) -> Result<T, Error>
+    where
+        T: DeserializeOwned,
+    {
         if let Some(ref tok) = self.token {
             let mut params = vec![
                 ("method", "rtm.tasks.getList"),
@@ -829,18 +829,83 @@ impl API {
             if !filter.is_empty() {
                 params.push(("filter", filter));
             }
+            let ls_str;
+            if let Some(ls) = last_sync {
+                ls_str = ls.to_rfc3339();
+                params.push(("last_sync", &ls_str));
+            }
             let response = self
                 .make_authenticated_request(&self.get_rest_url(), &params)
                 .await?;
-            // TODO: handle failure
-            let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
-                .unwrap()
-                .rsp
-                .tasks;
-            Ok(tasklist)
+            Ok(from_reader::<_, T>(response.as_bytes())?)
         } else {
             bail!("Unable to fetch tasks")
         }
+    }
+
+    /// Retrieve a filtered list of tasks, optionally only changes since the last sync date.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// `last_sync`, if specified, will get only changed tasks since that date.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn get_tasks_filtered_sync(
+        &self,
+        filter: &str,
+        last_sync: Option<chrono::DateTime<Utc>>,
+    ) -> Result<RTMTasks, Error> {
+        Ok(self
+            .get_tasks_filtered_sync_typed::<RTMResponse<TasksResponse>>(filter, last_sync)
+            .await?
+            .rsp
+            .tasks)
+    }
+
+    /// Retrieve a filtered list of tasks, optionally only changes since the last sync date,
+    /// as a JSON object.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// `last_sync`, if specified, will get only changed tasks since that date.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn get_tasks_filtered_sync_json(
+        &self,
+        filter: &str,
+        last_sync: Option<chrono::DateTime<Utc>>,
+    ) -> Result<serde_json::Value, Error> {
+        Ok(self
+            .get_tasks_filtered_sync_typed::<serde_json::Value>(filter, last_sync)
+            .await?
+            .get_mut("rsp")
+            .ok_or_else(|| anyhow::anyhow!("Response did not have rsp field"))?
+            .get_mut("tasks")
+            .ok_or_else(|| anyhow::anyhow!("Response did not have task field"))?
+            .take())
+    }
+    /// Retrieve a filtered list of tasks.
+    ///
+    /// The `filter` is a string in the [format used by
+    /// rememberthemilk](https://www.rememberthemilk.com/help/?ctx=basics.search.advanced),
+    /// for example to retrieve tasks which have not yet been completed and
+    /// are due today or in the past, you could use:
+    ///
+    /// `"status:incomplete AND (dueBefore:today OR due:today)"`
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn get_tasks_filtered(&self, filter: &str) -> Result<RTMTasks, Error> {
+        self.get_tasks_filtered_sync(filter, None).await
     }
 
     /// Return a filter string which can be used to search for external id
@@ -1071,6 +1136,23 @@ impl API {
         taskseries: &TaskSeries,
         task: &Task,
     ) -> Result<Option<RTMTransaction>, Error> {
+        self.mark_complete_id(timeline, &list.id, &taskseries.id, &task.id)
+            .await
+    }
+
+    /// Mark a task as complete, passing only ids.
+    ///
+    /// * `timeline`: a timeline as retrieved using [API::get_timeline]
+    /// * `list_id`, `taskseries_id` and `task_id` identify the task to tag.
+    ///
+    /// Requires a valid user authentication token.
+    pub async fn mark_complete_id(
+        &self,
+        timeline: &RTMTimeline,
+        list_id: &str,
+        taskseries_id: &str,
+        task_id: &str,
+    ) -> Result<Option<RTMTransaction>, Error> {
         if let Some(ref tok) = self.token {
             let params = &[
                 ("method", "rtm.tasks.complete"),
@@ -1078,9 +1160,9 @@ impl API {
                 ("api_key", &self.api_key),
                 ("auth_token", tok),
                 ("timeline", &timeline.0),
-                ("list_id", &list.id),
-                ("taskseries_id", &taskseries.id),
-                ("task_id", &task.id),
+                ("list_id", list_id),
+                ("taskseries_id", taskseries_id),
+                ("task_id", task_id),
             ];
             let response = self
                 .make_authenticated_request(&self.get_rest_url(), params)

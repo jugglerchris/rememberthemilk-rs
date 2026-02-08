@@ -12,15 +12,17 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
     Terminal,
 };
-use rememberthemilk::{Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries, API};
-use std::collections::HashMap;
+use rememberthemilk::{
+    cache::TaskCache, Perms, RTMList, RTMLists, RTMTasks, RTMTimeline, Task, TaskSeries,
+};
 use std::process::ExitCode;
 use std::{borrow::Cow, io};
+use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_stream::StreamExt;
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 
-use crate::{get_default_filter, get_rtm_api, tail_end};
+use crate::{get_default_filter, get_rtm_api, get_rtm_cache};
 
 static HELP_TEXT: &str = r#"Key bindings:
 
@@ -35,6 +37,7 @@ Space   Toggle selection
 ?/h     Show this help
 enter   Toggle task details
 ^L      Refresh screen
+^R      Initiate sync
 "#;
 
 #[derive(Copy, Clone)]
@@ -57,6 +60,11 @@ struct ListDispState {
     tasks: Option<RTMTasks>,
 }
 
+struct TaskInfo {
+    ts: TaskSeries,
+    list_id: String,
+}
+
 struct UiState {
     display_mode: DisplayMode,
     filter: String,
@@ -64,7 +72,7 @@ struct UiState {
     tree_items: Vec<TreeItem<'static, usize>>,
     tree_state: TreeState<usize>,
     list_paths: Vec<(usize, usize)>,
-    tasks: RTMTasks,
+    flat_tasks: Vec<TaskInfo>,
     lists: Vec<ListDispState>,
     lists_loading: bool,
     show_task: bool,
@@ -73,7 +81,50 @@ struct UiState {
     show_input: bool,
     show_help: bool,
     refresh: bool,
+    // Spinner with current state.
+    spinner: Option<(String, usize, &'static [&'static str])>,
+    tick_running: bool,
+    tick_tx: Sender<()>,
     event_tx: Sender<TuiEvent>,
+}
+
+impl UiState {
+    // Returns true if the tick should be rescheduled
+    fn tick(&mut self) {
+        if let Some((_s, step, chars)) = self.spinner.as_mut() {
+            *step = (*step + 1) % chars.len();
+        } else {
+            self.stop_ticking();
+        }
+    }
+
+    // Start a tick
+    async fn start_progress<F: Future + Send + 'static>(
+        ui: &std::sync::Arc<tokio::sync::Mutex<Self>>,
+        message: &str,
+        spinner: &'static [&'static str],
+        task: F,
+    ) -> anyhow::Result<()> {
+        let mut this = ui.lock().await;
+        this.tick_running = true;
+        this.spinner = Some((message.into(), 0, spinner));
+        {
+            let task_this = Arc::clone(ui);
+            tokio::spawn(async move {
+                task.await;
+                let mut locked = task_this.lock().await;
+                locked.spinner = None;
+                locked.tick_running = false;
+            });
+        }
+        this.tick_tx.send(()).await?;
+        Ok(())
+    }
+
+    // Stop ticking
+    fn stop_ticking(&mut self) {
+        self.tick_running = false;
+    }
 }
 
 struct RtmTaskListIterator<'t> {
@@ -132,10 +183,13 @@ impl<'t> Iterator for RtmTaskListIterator<'t> {
 enum TuiEvent {
     Input(Result<crossterm::event::Event, std::io::Error>),
     StateChanged,
+    Tick,
+    SyncFinished,
+    ListSyncFinished,
 }
 
 struct Tui {
-    api: API,
+    api_cache: TaskCache,
     current_timeline: Option<RTMTimeline>,
     transactions: Vec<String>,
     event_rx: Receiver<TuiEvent>,
@@ -146,6 +200,34 @@ enum StepResult {
     Cont,
     End,
 }
+
+fn tail_end(input: &str, width: usize) -> String {
+    let tot_width = unicode_width::UnicodeWidthStr::width(input);
+    if tot_width <= width {
+        // It fits, no problem.
+        return input.into();
+    }
+    // Otherwise, trim off the start, making space for a ...
+    let mut result = "…".to_string();
+    let elipsis_width = unicode_width::UnicodeWidthStr::width(result.as_str());
+    let space_needed = tot_width - (width - elipsis_width);
+
+    let mut removed_space = 0;
+    let mut ci = input.char_indices();
+
+    for (_, c) in &mut ci {
+        if let Some(w) = unicode_width::UnicodeWidthChar::width(c) {
+            removed_space += w;
+            if removed_space >= space_needed {
+                break;
+            }
+        }
+    }
+    let (start, _) = ci.next().unwrap();
+    result.push_str(&input[start..]);
+    result
+}
+
 impl Tui {
     pub async fn new() -> Result<Tui, anyhow::Error> {
         info!("Setting up terminal...");
@@ -176,8 +258,10 @@ impl Tui {
             });
         }
 
+        let (tick_tx, mut tick_rx) = tokio::sync::mpsc::channel(1);
         info!("Getting API instance...");
         let api = get_rtm_api(Perms::Delete).await?;
+        let api_cache = get_rtm_cache(api).await?;
         let tree_state: TreeState<usize> = Default::default();
         let filter = get_default_filter()?;
         let show_task = false;
@@ -191,7 +275,7 @@ impl Tui {
             list_pos: 0,
             tree_items: vec![],
             list_paths: vec![],
-            tasks: Default::default(),
+            flat_tasks: Default::default(),
             lists: Default::default(),
             lists_loading: false,
             show_task,
@@ -200,17 +284,44 @@ impl Tui {
             input_value: String::new(),
             show_input: false,
             refresh: false,
-            event_tx,
+            event_tx: event_tx.clone(),
+            spinner: None,
+            tick_running: false,
+            tick_tx,
         };
 
         let mut tui = Tui {
-            api,
+            api_cache,
             event_rx,
             terminal,
             ui_state: std::sync::Arc::new(tokio::sync::Mutex::new(ui_state)),
             current_timeline: None,
             transactions: Vec::new(),
         };
+
+        {
+            let ui_state = Arc::clone(&tui.ui_state);
+            tokio::spawn(async move {
+                loop {
+                    let _ = tick_rx.recv().await;
+                    let running = ui_state.lock().await.tick_running;
+                    if running {
+                        // Start ticking.
+                        let mut interval = tokio::time::interval(Duration::from_millis(250));
+                        loop {
+                            let _ = interval.tick().await;
+                            let ui_state = ui_state.lock().await;
+                            if ui_state.tick_running {
+                                event_tx.send(TuiEvent::Tick).await.unwrap();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
         info!("Updating tasks...");
         tui.update_tasks().await?;
         info!("TUI ready.");
@@ -221,25 +332,35 @@ impl Tui {
         trace!("Getting filter...");
         let filter = self.ui_state.lock().await.filter.clone();
         trace!("Requesting tasks...");
-        let tasks = self.api.get_tasks_filtered(&filter).await?;
+        let tasks = self.api_cache.get_tasks_filtered(&filter).await?;
         trace!("Got tasks.");
+        let tasks = self.add_missing_children(tasks).await?;
         let list_pos = 0;
 
-        let flat_tasks: Vec<TaskSeries> = RtmTaskListIterator::new(&tasks)
-            .map(|(_l, t)| t.clone())
-            .collect();
+        let flat_tasks: Vec<TaskInfo> = {
+            let mut ft: Vec<_> = RtmTaskListIterator::new(&tasks)
+                .map(|(l, t)| TaskInfo {
+                    ts: t.clone(),
+                    list_id: l.id.clone(),
+                })
+                .collect();
+            ft.sort_by(|a, b| (&a.ts.name, &a.ts.id).cmp(&(&b.ts.name, &b.ts.id)));
+            ft
+        };
 
         // Map id to (is_root, TreeItem)
         let mut task_map = HashMap::new();
         let mut children_map = HashMap::new();
         // Map by id
-        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, tinfo) in flat_tasks.iter().enumerate() {
+            let ts = &tinfo.ts;
             let id = &ts.task[0].id;
             task_map.insert(id, (true, TreeItem::new_leaf(ti, ts.name.clone())));
             children_map.insert(id, Vec::new());
         }
         // Record children
-        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, tinfo) in flat_tasks.iter().enumerate() {
+            let ts = &tinfo.ts;
             let id = &ts.task[0].id;
             if let Some(parent_task_id) = &ts.parent_task_id {
                 if !parent_task_id.is_empty() && task_map.contains_key(&parent_task_id) {
@@ -253,17 +374,17 @@ impl Tui {
         fn add_item(
             task_map: &mut HashMap<&String, (bool, TreeItem<'static, usize>)>,
             children_map: &mut HashMap<&String, Vec<usize>>,
-            tasks: &Vec<TaskSeries>,
+            tasks: &Vec<TaskInfo>,
             list: &mut Vec<TreeItem<'static, usize>>,
             ti: usize,
             mut item: TreeItem<'static, usize>,
         ) {
-            let id = &tasks[ti].task[0].id;
+            let id = &tasks[ti].ts.task[0].id;
             let children = children_map.remove(id).unwrap();
             if !children.is_empty() {
                 let mut child_items = Vec::new();
                 for cti in children {
-                    let cid = &tasks[cti].task[0].id;
+                    let cid = &tasks[cti].ts.task[0].id;
                     let (_, citem) = task_map.remove(cid).unwrap();
                     add_item(task_map, children_map, tasks, &mut child_items, cti, citem);
                 }
@@ -274,20 +395,19 @@ impl Tui {
             list.push(item);
         }
         let mut tree_items = Vec::new();
-        for (ti, (_l, ts)) in RtmTaskListIterator::new(&tasks).enumerate() {
+        for (ti, tinfo) in flat_tasks.iter().enumerate() {
+            let ts = &tinfo.ts;
             let id = &ts.task[0].id;
-            if let Some((is_root, _)) = task_map.get(id) {
-                if *is_root {
-                    let (_, item) = task_map.remove(id).unwrap();
-                    add_item(
-                        &mut task_map,
-                        &mut children_map,
-                        &flat_tasks,
-                        &mut tree_items,
-                        ti,
-                        item,
-                    );
-                }
+            if let Some((true, _)) = task_map.get(id) {
+                let (_, item) = task_map.remove(id).unwrap();
+                add_item(
+                    &mut task_map,
+                    &mut children_map,
+                    &flat_tasks,
+                    &mut tree_items,
+                    ti,
+                    item,
+                );
             }
         }
         if tree_items.is_empty() {
@@ -296,7 +416,7 @@ impl Tui {
         {
             let mut ui_state = self.ui_state.lock().await;
             ui_state.tree_state.select_first();
-            ui_state.tasks = tasks;
+            ui_state.flat_tasks = flat_tasks;
             ui_state.tree_items = tree_items;
             ui_state.list_pos = list_pos;
             ui_state.display_mode = DisplayMode::Tasks;
@@ -359,8 +479,11 @@ impl Tui {
         Ok(())
     }
 
-    async fn fetch_lists(api: API, ui_state: std::sync::Arc<tokio::sync::Mutex<UiState>>) {
-        let lists = api.get_lists().await.unwrap();
+    async fn fetch_lists(
+        api_cache: TaskCache,
+        ui_state: std::sync::Arc<tokio::sync::Mutex<UiState>>,
+    ) {
+        let lists = api_cache.get_lists().await.unwrap();
         let tx = ui_state.lock().await.event_tx.clone();
         {
             let mut ui_state = ui_state.lock().await;
@@ -389,7 +512,7 @@ impl Tui {
             (ui_state.filter.clone(), ids)
         };
         for (idx, list_id) in ids {
-            let tasks = get_tasks(&api, &filter, &list_id).await.unwrap();
+            let tasks = get_tasks(&api_cache, &filter, &list_id).await.unwrap();
             {
                 let mut ui_state = ui_state.lock().await;
                 if ui_state.lists.len() > idx && ui_state.lists[idx].list.id == list_id {
@@ -408,7 +531,7 @@ impl Tui {
     }
 
     async fn update_lists(&mut self) -> Result<(), anyhow::Error> {
-        {
+        let event_tx = {
             let mut ui_state = self.ui_state.lock().await;
             let ui_state = &mut *ui_state;
             ui_state.display_mode = DisplayMode::Lists;
@@ -417,11 +540,20 @@ impl Tui {
 
             ui_state.list_pos = 0;
             ui_state.show_task = false;
-        }
-        tokio::spawn(Tui::fetch_lists(
-            self.api.clone(),
-            std::sync::Arc::clone(&self.ui_state),
-        ));
+            ui_state.event_tx.clone()
+        };
+        let api_cache = self.api_cache.clone();
+        let ui_state_ptr = std::sync::Arc::clone(&self.ui_state);
+        UiState::start_progress(
+            &self.ui_state,
+            "fetching lists...",
+            &[".", "o", "O"],
+            async move {
+                Tui::fetch_lists(api_cache, ui_state_ptr).await;
+                event_tx.send(TuiEvent::ListSyncFinished).await.unwrap();
+            },
+        )
+        .await?;
         self.update_list_display().await
     }
 
@@ -441,6 +573,11 @@ impl Tui {
                 .border_style(Style::default().fg(Color::White))
                 .border_type(BorderType::Rounded)
                 .style(Style::default().bg(Color::Black));
+            let block = if let Some((msg, step, chars)) = &ui_state.spinner {
+                block.title_bottom(format!("{msg} {}", chars[*step]))
+            } else {
+                block
+            };
             let tree_items = ui_state.tree_items.clone();
             let tree = Tree::new(&tree_items)
                 .unwrap()
@@ -462,12 +599,7 @@ impl Tui {
                     .style(Style::default().bg(Color::Black));
                 let tree_pos = ui_state.tree_state.selected();
                 let series = match ui_state.display_mode {
-                    DisplayMode::Tasks => tree_pos.last().map(|pos| {
-                        RtmTaskListIterator::new(&ui_state.tasks)
-                            .nth(*pos)
-                            .unwrap()
-                            .1
-                    }),
+                    DisplayMode::Tasks => tree_pos.last().map(|pos| &ui_state.flat_tasks[*pos].ts),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
                             Some(
@@ -638,6 +770,13 @@ impl Tui {
                     }
                 },
                 Some(TuiEvent::StateChanged) => (),
+                Some(TuiEvent::Tick) => {
+                    self.ui_state.lock().await.tick();
+                }
+                Some(TuiEvent::SyncFinished) => {
+                    self.update_tasks().await.unwrap();
+                }
+                Some(TuiEvent::ListSyncFinished) => {}
             }
         }
         let mut ui_state = self.ui_state.lock().await;
@@ -678,7 +817,7 @@ impl Tui {
                                 if !task_desc.is_empty() {
                                     let timeline = self.get_timeline().await?;
                                     let _added = self
-                                        .api
+                                        .api_cache
                                         .add_task(&timeline, &task_desc, None, None, None, true)
                                         .await?;
                                     self.update_tasks().await?;
@@ -691,6 +830,21 @@ impl Tui {
                             }
                             (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
                                 self.ui_state.lock().await.refresh = true;
+                                StepResult::Cont
+                            }
+                            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                                let api_cache = self.api_cache.clone();
+                                let event_tx = self.ui_state.lock().await.event_tx.clone();
+                                UiState::start_progress(
+                                    &self.ui_state,
+                                    "syncing...",
+                                    &["|", "/", "-", "\\"],
+                                    async move {
+                                        api_cache.sync().await.unwrap();
+                                        event_tx.send(TuiEvent::SyncFinished).await.unwrap();
+                                    },
+                                )
+                                .await?;
                                 StepResult::Cont
                             }
                             (KeyCode::Enter, KeyModifiers::NONE) => {
@@ -710,21 +864,24 @@ impl Tui {
                                 match display_mode {
                                     DisplayMode::Tasks => {
                                         info!("Marking task as complete");
-                                        self.for_each_selected(async |api, tl, list, ts, task| {
-                                            let resp =
-                                                api.mark_complete(tl, list, ts, task).await?;
-                                            if let Some(transaction) = resp {
-                                                if transaction.undoable
-                                                    && !transaction.id.is_empty()
-                                                {
-                                                    Ok(Some(transaction.id))
+                                        self.for_each_selected(
+                                            async |api_cache, tl, list, ts, task| {
+                                                let resp = api_cache
+                                                    .mark_complete_id(tl, list, &ts.id, &task.id)
+                                                    .await?;
+                                                if let Some(transaction) = resp {
+                                                    if transaction.undoable
+                                                        && !transaction.id.is_empty()
+                                                    {
+                                                        Ok(Some(transaction.id))
+                                                    } else {
+                                                        Ok(None)
+                                                    }
                                                 } else {
                                                     Ok(None)
                                                 }
-                                            } else {
-                                                Ok(None)
-                                            }
-                                        })
+                                            },
+                                        )
                                         .await?;
                                         info!("Marked as complete!");
                                         self.update_tasks().await?;
@@ -782,6 +939,15 @@ impl Tui {
                 }
                 StepResult::Cont
             }
+            Some(TuiEvent::Tick) => {
+                self.ui_state.lock().await.tick();
+                StepResult::Cont
+            }
+            Some(TuiEvent::SyncFinished) => {
+                self.update_tasks().await.unwrap();
+                StepResult::Cont
+            }
+            Some(TuiEvent::ListSyncFinished) => StepResult::Cont,
         };
         Ok(result)
     }
@@ -798,7 +964,7 @@ impl Tui {
 
     async fn get_timeline(&mut self) -> Result<RTMTimeline, anyhow::Error> {
         if self.current_timeline.is_none() {
-            self.current_timeline = Some(self.api.get_timeline().await?);
+            self.current_timeline = Some(self.api_cache.get_timeline().await?);
             self.transactions.clear();
         }
         Ok(self.current_timeline.as_ref().unwrap().clone())
@@ -808,9 +974,9 @@ impl Tui {
     async fn for_each_selected<F>(&mut self, f: F) -> Result<(), anyhow::Error>
     where
         F: AsyncFn(
-            &API,
+            &TaskCache,
             &RTMTimeline,
-            &RTMLists,
+            &str, // list id
             &TaskSeries,
             &Task,
         ) -> Result<Option<String>, anyhow::Error>,
@@ -818,13 +984,11 @@ impl Tui {
         let timeline = self.get_timeline().await?;
 
         let ui_state = self.ui_state.lock().await;
-        let mut it = RtmTaskListIterator::new(&ui_state.tasks);
         let tree_pos = ui_state.tree_state.selected();
-        if let Some((list, ts)) = it.nth(*tree_pos.last().unwrap()) {
-            let task = &ts.task[0];
-            if let Some(tid) = f(&self.api, &timeline, list, ts, task).await? {
-                self.transactions.push(tid);
-            }
+        let tinfo = &ui_state.flat_tasks[*tree_pos.last().unwrap()];
+        let task = &tinfo.ts.task[0];
+        if let Some(tid) = f(&self.api_cache, &timeline, &tinfo.list_id, &tinfo.ts, task).await? {
+            self.transactions.push(tid);
         }
 
         Ok(())
@@ -833,19 +997,83 @@ impl Tui {
     async fn undo_latest(&mut self) -> Result<(), anyhow::Error> {
         if let Some(tl) = &self.current_timeline {
             if let Some(transaction) = self.transactions.pop() {
-                self.api.undo_transaction(tl, &transaction).await?;
+                self.api_cache.undo_transaction(tl, &transaction).await?;
             }
         }
         Ok(())
     }
+
+    async fn add_missing_children(&self, tasks: RTMTasks) -> Result<RTMTasks, anyhow::Error> {
+        use std::collections::hash_map::Entry;
+        let mut all_lists = HashMap::new();
+
+        let update_lists = |all_lists: &mut HashMap<String, HashMap<String, TaskSeries>>,
+                            tasks: RTMTasks| {
+            // Initially import the tasks into hash maps.
+            for list in tasks.list {
+                let list_map = all_lists.entry(list.id).or_default();
+                if let Some(tss) = list.taskseries {
+                    for ts in tss {
+                        match list_map.entry(ts.id.clone()) {
+                            Entry::Occupied(mut occupied_entry) => {
+                                let cur_ts = occupied_entry.get_mut();
+                                for new_t in ts.task {
+                                    if !cur_ts.task.iter().any(|t| t.id == new_t.id) {
+                                        cur_ts.task.push(new_t);
+                                    }
+                                }
+                            }
+                            Entry::Vacant(vacant_entry) => {
+                                vacant_entry.insert(ts);
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        update_lists(&mut all_lists, tasks);
+
+        let mut task_ids = Vec::new();
+        for (_, l) in all_lists.iter() {
+            for (_, ts) in l.iter() {
+                for t in &ts.task {
+                    task_ids.push(t.id.clone());
+                }
+            }
+        }
+
+        while let Some(id) = task_ids.pop() {
+            let children = self.api_cache.get_task_children(&id).await?;
+            for (_list, ts) in RtmTaskListIterator::new(&children) {
+                for t in &ts.task {
+                    task_ids.push(t.id.clone());
+                }
+            }
+
+            update_lists(&mut all_lists, children);
+        }
+
+        // Now combine back into an RTMLists.
+        let mut result: RTMTasks = Default::default();
+        for (list_id, list) in all_lists.into_iter() {
+            let new_list = RTMLists {
+                id: list_id,
+                taskseries: Some(list.into_values().collect()),
+            };
+            result.list.push(new_list);
+        }
+        Ok(result)
+    }
 }
 
 async fn get_tasks(
-    api: &rememberthemilk::API,
+    api_cache: &rememberthemilk::cache::TaskCache,
     filter: &str,
     id: &str,
 ) -> Result<RTMTasks, anyhow::Error> {
-    let tasks = api.get_tasks_in_list(id, filter).await?;
+    info!("get_tasks({filter}, {id})");
+    let tasks = api_cache.get_tasks_in_list(id, filter).await?;
+    info!("get_tasks({filter}, {id}): got {} tasks", tasks.list.len());
     Ok(tasks)
 }
 

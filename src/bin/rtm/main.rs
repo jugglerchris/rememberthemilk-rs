@@ -1,7 +1,11 @@
 #![deny(warnings)]
 use anyhow::bail;
 use clap::Parser;
+#[cfg(feature = "cache")]
+use etcetera::{AppStrategy, AppStrategyArgs};
 use log::{info, trace};
+#[cfg(feature = "cache")]
+use rememberthemilk::cache::TaskCache;
 use rememberthemilk::{Perms, API};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,33 +31,6 @@ impl Default for Settings {
             filter: "status:incomplete AND (dueBefore:today OR due:today)".into(),
         }
     }
-}
-
-fn tail_end(input: &str, width: usize) -> String {
-    let tot_width = unicode_width::UnicodeWidthStr::width(input);
-    if tot_width <= width {
-        // It fits, no problem.
-        return input.into();
-    }
-    // Otherwise, trim off the start, making space for a ...
-    let mut result = "…".to_string();
-    let elipsis_width = unicode_width::UnicodeWidthStr::width(result.as_str());
-    let space_needed = tot_width - (width - elipsis_width);
-
-    let mut removed_space = 0;
-    let mut ci = input.char_indices();
-
-    for (_, c) in &mut ci {
-        if let Some(w) = unicode_width::UnicodeWidthChar::width(c) {
-            removed_space += w;
-            if removed_space >= space_needed {
-                break;
-            }
-        }
-    }
-    let (start, _) = ci.next().unwrap();
-    result.push_str(&input[start..]);
-    result
 }
 
 #[derive(Parser, Debug)]
@@ -91,6 +68,9 @@ enum Command {
     },
     /// List all methods using reflection
     Methods,
+    #[cfg(feature = "cache")]
+    /// Synchronize the local db
+    Sync,
     #[cfg(feature = "tui")]
     /// Run the TUI
     Tui,
@@ -163,6 +143,23 @@ async fn get_rtm_api(perm: Perms) -> Result<API, anyhow::Error> {
         auth_user(&mut api, perm).await?;
     };
     Ok(api)
+}
+
+#[cfg(feature = "cache")]
+async fn get_rtm_cache(api: API) -> Result<TaskCache, anyhow::Error> {
+    let strategy = etcetera::choose_app_strategy(AppStrategyArgs {
+        top_level_domain: "org".into(),
+        author: "Chris Emerson".into(),
+        app_name: "rtm".into(),
+    })
+    .unwrap();
+
+    let cache_dir = strategy.cache_dir();
+    std::fs::create_dir_all(&cache_dir)?;
+
+    let db_path = strategy.in_cache_dir("sync.sqlite");
+
+    Ok(TaskCache::new(&db_path, api).await?)
 }
 
 async fn auth_user(api: &mut API, perm: Perms) -> Result<(), anyhow::Error> {
@@ -400,6 +397,14 @@ fn print_taskseries(task: &rememberthemilk::TaskSeries) {
     }
 }
 
+#[cfg(feature = "cache")]
+async fn run_sync(_opt: &Opt) -> Result<ExitCode, anyhow::Error> {
+    let cache = get_rtm_cache(get_rtm_api(Perms::Read).await?).await?;
+
+    cache.sync().await?;
+    Ok(ExitCode::SUCCESS)
+}
+
 #[cfg(feature = "tui")]
 mod tui;
 
@@ -424,6 +429,8 @@ async fn main() -> Result<ExitCode, anyhow::Error> {
         } => add_task(&opt, name, external_id.as_deref()).await?,
         Command::AuthApp { key, secret, perm } => auth_app(key, secret, perm).await?,
         Command::Methods => get_methods(&opt).await?,
+        #[cfg(feature = "cache")]
+        Command::Sync => run_sync(&opt).await?,
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,
         Command::Logout => logout().await?,
