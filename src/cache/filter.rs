@@ -255,15 +255,15 @@ impl RtmFilter {
                 (result, binds)
             }
             RtmFilter::DueNever => {
-                (r#"jsonb_extract(t.data, "$.due") = """#.into(), vec![])
+                (r#"t.due_time IS NULL"#.into(), vec![])
             }
             RtmFilter::DueBefore(time) => {
-                (r#"jsonb_extract(t.data, "$.due") <> "" AND jsonb_extract(t.data, "$.due") < ?"#.into(),
+                (r#"t.due_time IS NOT NULL AND t.due_time < ?"#.into(),
                     vec![time.to_sql_date(context)])
             }
             RtmFilter::DueWithin(from, to) => {
                 (format!(
-                    r#"jsonb_extract(t.data, "$.due") <> "" AND jsonb_extract(t.data, "$.due") < "{}" AND jsonb_extract(t.data, "$.due") >= "{}""#,
+                    r#"t.due_time IS NOT NULL AND t.due_time < "{}" AND t.due_time >= "{}""#,
                     to.to_sql_date(context),
                     from.to_sql_date(context)
                 ), Vec::new())
