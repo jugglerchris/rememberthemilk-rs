@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use crossterm::{
     event::{Event, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode},
@@ -642,24 +642,6 @@ impl Tui {
                         spans.push(Span::styled(repeat.rule.clone(), style));
                         text.push(Line::from(spans));
                     }
-                    for task in &series.task {
-                        fn add_date_field(
-                            text: &mut Vec<Line>,
-                            heading: &'static str,
-                            value: &Option<DateTime<Utc>>,
-                            color: Color,
-                        ) {
-                            if let Some(date) = value {
-                                let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
-                                let mut spans = vec![Span::raw(heading)];
-                                spans.push(Span::styled(format!("{}", date.format("%c")), style));
-                                text.push(Line::from(spans));
-                            }
-                        }
-                        add_date_field(&mut text, "Due: ", &task.due, Color::Yellow);
-                        add_date_field(&mut text, "Completed: ", &task.completed, Color::Magenta);
-                        add_date_field(&mut text, "Deleted: ", &task.deleted, Color::Red);
-                    }
                     fn add_string_field(
                         text: &mut Vec<Line>,
                         heading: &'static str,
@@ -673,8 +655,34 @@ impl Tui {
                             text.push(Line::from(spans));
                         }
                     }
+                    for task in &series.task {
+                        fn add_date_field(
+                            text: &mut Vec<Line>,
+                            heading: &'static str,
+                            value: &Option<DateTime<Utc>>,
+                            has_time: bool,
+                            color: Color,
+                        ) {
+                            if let Some(date_utc) = value {
+                                let date = date_utc.with_timezone::<Local>(&Local);
+                                let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
+                                let mut spans = vec![Span::raw(heading)];
+                                if has_time {
+                                    spans.push(Span::styled(format!("{}", date.format("%c")), style));
+                                } else {
+                                    spans.push(Span::styled(format!("{}", date.format("%a %b %-d %Y")), style));
+                                }
+                                text.push(Line::from(spans));
+                            }
+                        }
+                        add_date_field(&mut text, "Due: ", &task.due, task.has_due_time, Color::Yellow);
+                        add_date_field(&mut text, "Completed: ", &task.completed, true, Color::Magenta);
+                        add_date_field(&mut text, "Deleted: ", &task.deleted, true, Color::Red);
+                        add_string_field(&mut text, "Task: ", &task.id, Color::Gray);
+                    }
                     add_string_field(&mut text, "URL: ", &series.url, Color::Yellow);
                     add_string_field(&mut text, "Source: ", &series.source, Color::Yellow);
+                    add_string_field(&mut text, "Task series: ", &series.id, Color::Gray);
                     if !series.notes.is_empty() {
                         text.push(Line::from(vec![Span::raw("Notes:")]));
                         for note in &series.notes {
