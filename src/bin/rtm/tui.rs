@@ -668,15 +668,33 @@ impl Tui {
                                 let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
                                 let mut spans = vec![Span::raw(heading)];
                                 if has_time {
-                                    spans.push(Span::styled(format!("{}", date.format("%c")), style));
+                                    spans.push(Span::styled(
+                                        format!("{}", date.format("%c")),
+                                        style,
+                                    ));
                                 } else {
-                                    spans.push(Span::styled(format!("{}", date.format("%a %b %-d %Y")), style));
+                                    spans.push(Span::styled(
+                                        format!("{}", date.format("%a %b %-d %Y")),
+                                        style,
+                                    ));
                                 }
                                 text.push(Line::from(spans));
                             }
                         }
-                        add_date_field(&mut text, "Due: ", &task.due, task.has_due_time, Color::Yellow);
-                        add_date_field(&mut text, "Completed: ", &task.completed, true, Color::Magenta);
+                        add_date_field(
+                            &mut text,
+                            "Due: ",
+                            &task.due,
+                            task.has_due_time,
+                            Color::Yellow,
+                        );
+                        add_date_field(
+                            &mut text,
+                            "Completed: ",
+                            &task.completed,
+                            true,
+                            Color::Magenta,
+                        );
                         add_date_field(&mut text, "Deleted: ", &task.deleted, true, Color::Red);
                         add_string_field(&mut text, "Task: ", &task.id, Color::Gray);
                     }
