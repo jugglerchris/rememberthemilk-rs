@@ -11,6 +11,14 @@ Possible log types:
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 -->
 
+### 0.4.12
+
+- [fixed] The filtering from the local cache was not handling due dates with
+  no times correctly.  In the UK timezone, they appear with a date of 23:00UTC
+  on the day before the intended due date (it's midnight local time), so events
+  due tomorrow were appearing in a "today" view.  Improve the calculation.
+- [security] Update dependencies.
+
 ### 0.4.11
 
 - [added] Local task cache in an sqlite database.  This makes the TUI mode
