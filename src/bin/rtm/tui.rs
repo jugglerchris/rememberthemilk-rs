@@ -273,7 +273,7 @@ impl Tui {
             display_mode,
             filter,
             tree_state,
-            list_pos: 0,
+            list_pos: 1,
             tree_items: vec![],
             list_paths: vec![],
             flat_tasks: Default::default(),
@@ -337,7 +337,7 @@ impl Tui {
         let tasks = self.api_cache.get_tasks_filtered(&filter).await?;
         trace!("Got tasks.");
         let tasks = self.add_missing_children(tasks).await?;
-        let list_pos = 0;
+        let list_pos = 1;
 
         let flat_tasks: Vec<TaskInfo> = {
             let mut ft: Vec<_> = RtmTaskListIterator::new(&tasks)
@@ -600,25 +600,25 @@ impl Tui {
                     .border_type(BorderType::Rounded)
                     .style(Style::default().bg(Color::Black));
                 let tree_pos = ui_state.tree_state.selected();
-                let series = match ui_state.display_mode {
-                    DisplayMode::Tasks => tree_pos.last().map(|pos| &ui_state.flat_tasks[*pos].ts),
+                let task_info = match ui_state.display_mode {
+                    DisplayMode::Tasks => tree_pos.last().map(|pos| {
+                        (&ui_state.flat_tasks[*pos].list_id,
+                        &ui_state.flat_tasks[*pos].ts)
+                    }),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
-                            Some(
-                                RtmTaskListIterator::new(
+                            RtmTaskListIterator::new(
                                     ui_state.lists[tree_pos[0]].tasks.as_ref().unwrap(),
                                 )
                                 .nth(tree_pos[1])
-                                .unwrap()
-                                .1,
-                            )
+                                .map(|item| (&item.0.id, item.1))
                         } else {
                             None
                         }
                     }
                 };
 
-                if let Some(series) = series {
+                if let Some((list_id, series)) = task_info {
                     let mut text = vec![Line::from(vec![Span::raw(series.name.clone())])];
                     if !series.tags.is_empty() {
                         let mut spans = vec![Span::raw("Tags: ")];
@@ -703,6 +703,7 @@ impl Tui {
                     add_string_field(&mut text, "URL: ", &series.url, Color::Yellow);
                     add_string_field(&mut text, "Source: ", &series.source, Color::Yellow);
                     add_string_field(&mut text, "Task series: ", &series.id, Color::Gray);
+                    add_string_field(&mut text, "List id: ", &list_id, Color::Gray);
                     if !series.notes.is_empty() {
                         text.push(Line::from(vec![Span::raw("Notes:")]));
                         for note in &series.notes {
