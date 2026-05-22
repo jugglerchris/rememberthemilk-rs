@@ -288,7 +288,7 @@ impl RtmFilter {
                     Some(id) => {
                         let id: u64 = id.parse()?;
 
-                        (r#"t.list_id = ?"#.into(), vec![id.to_string()])
+                        (r#"ts.list_id = ?"#.into(), vec![id.to_string()])
                     }
                     None => {
                         log::warn!("Invalid list name: {listname}");
@@ -781,8 +781,8 @@ mod tests {
                 r#"jsonb_extract(t.data, "$.completed") <> """#,
                 &[][..],
             ),
-            ("list:foo", r#"t.list_id = ?"#, &["12345678"]),
-            (r#"list:"My List""#, r#"t.list_id = ?"#, &["87654321"]),
+            ("list:foo", r#"ts.list_id = ?"#, &["12345678"]),
+            (r#"list:"My List""#, r#"ts.list_id = ?"#, &["87654321"]),
             (
                 "name:foo",
                 r#"jsonb_extract(ts.data, "$.name") LIKE ?"#,
