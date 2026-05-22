@@ -10,6 +10,8 @@ use rememberthemilk::{Perms, API};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
+#[cfg(feature = "cache")]
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 const RTM_APP_NAME: &str = "rtm";
@@ -74,6 +76,11 @@ enum Command {
     #[cfg(feature = "tui")]
     /// Run the TUI
     Tui,
+    #[cfg(feature = "cache")]
+    /// Run an SQL statement on the database
+    Sql {
+        statement: String,
+    },
     /// Remove the saved user token
     Logout,
 }
@@ -146,18 +153,22 @@ async fn get_rtm_api(perm: Perms) -> Result<API, anyhow::Error> {
 }
 
 #[cfg(feature = "cache")]
-async fn get_rtm_cache(api: API) -> Result<TaskCache, anyhow::Error> {
+fn get_db_path() -> Result<PathBuf, anyhow::Error> {
     let strategy = etcetera::choose_app_strategy(AppStrategyArgs {
         top_level_domain: "org".into(),
         author: "Chris Emerson".into(),
         app_name: "rtm".into(),
-    })
-    .unwrap();
+    })?;
 
     let cache_dir = strategy.cache_dir();
     std::fs::create_dir_all(&cache_dir)?;
 
-    let db_path = strategy.in_cache_dir("sync.sqlite");
+    Ok(strategy.in_cache_dir("sync.sqlite"))
+}
+
+#[cfg(feature = "cache")]
+async fn get_rtm_cache(api: API) -> Result<TaskCache, anyhow::Error> {
+    let db_path = get_db_path()?;
 
     Ok(TaskCache::new(&db_path, api).await?)
 }
@@ -405,6 +416,15 @@ async fn run_sync(_opt: &Opt) -> Result<ExitCode, anyhow::Error> {
     Ok(ExitCode::SUCCESS)
 }
 
+#[cfg(feature = "cache")]
+async fn run_sql(_opt: &Opt, statement: &str) -> Result<ExitCode, anyhow::Error> {
+    use rememberthemilk::cache;
+
+    cache::run_raw_sql(&get_db_path()?, statement).await?;
+
+    Ok(ExitCode::SUCCESS)
+}
+
 #[cfg(feature = "tui")]
 mod tui;
 
@@ -433,6 +453,8 @@ async fn main() -> Result<ExitCode, anyhow::Error> {
         Command::Sync => run_sync(&opt).await?,
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,
+        #[cfg(feature = "cache")]
+        Command::Sql { ref statement } => run_sql(&opt, &statement).await?,
         Command::Logout => logout().await?,
     })
 }

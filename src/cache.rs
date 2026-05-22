@@ -7,6 +7,7 @@ use sqlx::{
     migrate::{MigrateDatabase as _, MigrateError},
     Sqlite, SqlitePool,
 };
+use tokio_stream::StreamExt;
 type JsonValue = serde_json::Value;
 
 use crate::{RTMList, RTMLists, RTMTasks, RTMTimeline, RTMTransaction, Task, TaskSeries, API};
@@ -41,6 +42,50 @@ pub type Result<T> = std::result::Result<T, CacheError>;
 pub struct TaskCache {
     pool: SqlitePool,
     api: API,
+}
+
+/// Run a raw sql statement against the cache database.
+pub async fn run_raw_sql(db_path: &Path, sql: &str) -> Result<()>
+{
+    use sqlx::{Column, Row};
+    log::info!("Opening db at {db_path:?}");
+    let Some(db_name) = db_path.as_os_str().to_str() else {
+        return Err(CacheError::PathError);
+    };
+    let pool = SqlitePool::connect(db_name).await?;
+
+    let mut rows = sqlx::query(sql)
+        .fetch(&pool);
+
+    let mut first = true;
+    while let Some(row) = rows.try_next().await? {
+        if first {
+            let mut firstcol = true;
+            for col in row.columns() {
+                if firstcol {
+                    firstcol = false;
+                } else {
+                    print!(",");
+                }
+                print!("{}", col.name());
+            }
+            println!();
+            first = false;
+        }
+        let mut firstcol = true;
+        for i in 0..row.len() {
+            if firstcol {
+                firstcol = false;
+            } else {
+                print!(",");
+            }
+            let val: &str = row.get(i);
+            print!("{val}");
+        }
+        println!();
+    }
+
+    Ok(())
 }
 
 impl TaskCache {
