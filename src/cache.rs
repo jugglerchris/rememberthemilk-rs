@@ -138,7 +138,7 @@ impl TaskCache {
                         sqlx::query(
                             "INSERT INTO taskseries(list_id, taskseries_id, data)
                             VALUES(?1, ?2, jsonb(?3))
-                            ON CONFLICT DO UPDATE SET data = jsonb(?3);
+                            ON CONFLICT DO UPDATE SET (list_id, data) = (?1, jsonb(?3));
                         ",
                         )
                         .bind(&list_id)
@@ -151,12 +151,11 @@ impl TaskCache {
                             for t in tasks {
                                 let task_id = t.get("id").unwrap().as_str().unwrap();
                                 sqlx::query(
-                                    "INSERT INTO tasks(list_id, taskseries_id, task_id, data)
-                                    VALUES(?1, ?2, ?3, jsonb(?4))
-                                    ON CONFLICT DO UPDATE SET data = jsonb(?4);
+                                    "INSERT INTO tasks(taskseries_id, task_id, data)
+                                    VALUES(?1, ?2, jsonb(?3))
+                                    ON CONFLICT DO UPDATE SET data = jsonb(?3);
                                 ",
                                 )
-                                .bind(&list_id)
                                 .bind(&taskseries_id)
                                 .bind(task_id)
                                 .bind(t.to_string())
@@ -181,10 +180,9 @@ impl TaskCache {
                                     sqlx::query(
                                         "UPDATE tasks
                                          SET deleted=true
-                                         WHERE list_id=? AND taskseries_id=? AND task_id=?;
+                                         WHERE taskseries_id=? AND task_id=?;
                             ",
                                     )
-                                    .bind(&list_id)
                                     .bind(&taskseries_id)
                                     .bind(task_id)
                                     .execute(&mut *tx)
@@ -262,7 +260,7 @@ impl TaskCache {
         let query_str = format!(
             r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
-             USING (list_id, taskseries_id)
+             USING (taskseries_id)
              WHERE
                 t.deleted != TRUE AND
                 {filter_clause};
@@ -310,7 +308,7 @@ impl TaskCache {
 
         let query = r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
-             USING (list_id, taskseries_id)
+             USING (taskseries_id)
              WHERE
                 t.deleted != TRUE AND
                 jsonb_extract(t.data, "$.completed") = "" AND
@@ -452,10 +450,10 @@ impl TaskCache {
         let query_str = format!(
             r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
-             USING (list_id, taskseries_id)
+             USING (taskseries_id)
              WHERE
                 t.deleted != TRUE AND
-                list_id = ? AND
+                ts.list_id = ? AND
                 {filter_clause};
                 "#
         );
