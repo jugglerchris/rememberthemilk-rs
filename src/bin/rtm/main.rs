@@ -452,7 +452,7 @@ async fn main() -> Result<ExitCode, anyhow::Error> {
         #[cfg(feature = "tui")]
         Command::Tui => tui::tui().await?,
         #[cfg(feature = "cache")]
-        Command::Sql { ref statement } => run_sql(&opt, &statement).await?,
+        Command::Sql { ref statement } => run_sql(&opt, statement).await?,
         Command::Logout => logout().await?,
     })
 }

@@ -705,7 +705,7 @@ impl Tui {
                     add_string_field(&mut text, "URL: ", &series.url, Color::Yellow);
                     add_string_field(&mut text, "Source: ", &series.source, Color::Yellow);
                     add_string_field(&mut text, "Task series: ", &series.id, Color::Gray);
-                    add_string_field(&mut text, "List id: ", &list_id, Color::Gray);
+                    add_string_field(&mut text, "List id: ", list_id, Color::Gray);
                     if !series.notes.is_empty() {
                         text.push(Line::from(vec![Span::raw("Notes:")]));
                         for note in &series.notes {
