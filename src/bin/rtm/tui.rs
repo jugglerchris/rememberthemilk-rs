@@ -441,7 +441,7 @@ impl Tui {
                     let mut item = TreeItem::new_leaf(
                         i,
                         Text::styled(
-                            format!("{} [{}]", &list.list.name, len),
+                            format!("{} [{}]", list.list.name, len),
                             Style::default().fg(Color::LightYellow),
                         ),
                     );
@@ -1099,8 +1099,8 @@ impl Tui {
         update_lists(&mut all_lists, tasks);
 
         let mut task_ids = Vec::new();
-        for (_, l) in all_lists.iter() {
-            for (_, ts) in l.iter() {
+        for l in all_lists.values() {
+            for ts in l.values() {
                 for t in &ts.task {
                     task_ids.push(t.id.clone());
                 }
