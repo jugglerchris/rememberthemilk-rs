@@ -11,6 +11,17 @@ Possible log types:
 - `[security]` to invite users to upgrade in case of vulnerabilities.
 -->
 
+### 0.4.13
+
+- [fixed] Overhaul internal error handling: handle errors from the server
+  more cleanly and consistently.
+- [fixed] Add an error popup in the TUI, rather than hiding or panicking.
+- [added] Show list id in task details view
+- [added] `sql` subcommand to run raw SQL against the cache database.
+- [fixed] Don't treat the list id as part of a task's primary key, as they
+  can be moved between lists.
+- [changed] Update dependencies.
+
 ### 0.4.12
 
 - [fixed] The filtering from the local cache was not handling due dates with
