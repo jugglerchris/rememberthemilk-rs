@@ -80,6 +80,7 @@ struct UiState {
     input_value: String,
     show_input: bool,
     show_help: bool,
+    error_msg: Option<String>,
     refresh: bool,
     // Spinner with current state.
     spinner: Option<(String, usize, &'static [&'static str])>,
@@ -272,7 +273,7 @@ impl Tui {
             display_mode,
             filter,
             tree_state,
-            list_pos: 0,
+            list_pos: 1,
             tree_items: vec![],
             list_paths: vec![],
             flat_tasks: Default::default(),
@@ -280,6 +281,7 @@ impl Tui {
             lists_loading: false,
             show_task,
             show_help,
+            error_msg: None,
             input_prompt: "",
             input_value: String::new(),
             show_input: false,
@@ -335,7 +337,7 @@ impl Tui {
         let tasks = self.api_cache.get_tasks_filtered(&filter).await?;
         trace!("Got tasks.");
         let tasks = self.add_missing_children(tasks).await?;
-        let list_pos = 0;
+        let list_pos = 1;
 
         let flat_tasks: Vec<TaskInfo> = {
             let mut ft: Vec<_> = RtmTaskListIterator::new(&tasks)
@@ -439,7 +441,7 @@ impl Tui {
                     let mut item = TreeItem::new_leaf(
                         i,
                         Text::styled(
-                            format!("{} [{}]", &list.list.name, len),
+                            format!("{} [{}]", list.list.name, len),
                             Style::default().fg(Color::LightYellow),
                         ),
                     );
@@ -598,25 +600,27 @@ impl Tui {
                     .border_type(BorderType::Rounded)
                     .style(Style::default().bg(Color::Black));
                 let tree_pos = ui_state.tree_state.selected();
-                let series = match ui_state.display_mode {
-                    DisplayMode::Tasks => tree_pos.last().map(|pos| &ui_state.flat_tasks[*pos].ts),
+                let task_info = match ui_state.display_mode {
+                    DisplayMode::Tasks => tree_pos.last().map(|pos| {
+                        (
+                            &ui_state.flat_tasks[*pos].list_id,
+                            &ui_state.flat_tasks[*pos].ts,
+                        )
+                    }),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
-                            Some(
-                                RtmTaskListIterator::new(
-                                    ui_state.lists[tree_pos[0]].tasks.as_ref().unwrap(),
-                                )
-                                .nth(tree_pos[1])
-                                .unwrap()
-                                .1,
+                            RtmTaskListIterator::new(
+                                ui_state.lists[tree_pos[0]].tasks.as_ref().unwrap(),
                             )
+                            .nth(tree_pos[1])
+                            .map(|item| (&item.0.id, item.1))
                         } else {
                             None
                         }
                     }
                 };
 
-                if let Some(series) = series {
+                if let Some((list_id, series)) = task_info {
                     let mut text = vec![Line::from(vec![Span::raw(series.name.clone())])];
                     if !series.tags.is_empty() {
                         let mut spans = vec![Span::raw("Tags: ")];
@@ -701,6 +705,7 @@ impl Tui {
                     add_string_field(&mut text, "URL: ", &series.url, Color::Yellow);
                     add_string_field(&mut text, "Source: ", &series.source, Color::Yellow);
                     add_string_field(&mut text, "Task series: ", &series.id, Color::Gray);
+                    add_string_field(&mut text, "List id: ", list_id, Color::Gray);
                     if !series.notes.is_empty() {
                         text.push(Line::from(vec![Span::raw("Notes:")]));
                         for note in &series.notes {
@@ -744,6 +749,24 @@ impl Tui {
                 let area = Rect::new(1, 1, max_w as u16 + 2, max_h as u16 + 2);
                 f.render_widget(Clear, area);
                 f.render_widget(Paragraph::new(Text::raw(help_text)).block(block), area);
+            }
+            if let Some(msg) = ui_state.error_msg.as_ref() {
+                let block = Block::default()
+                    .title("Error")
+                    .borders(Borders::all())
+                    .border_style(Style::default().fg(Color::DarkGray))
+                    .style(Style::default().fg(Color::Red));
+                let (max_x, max_y) = msg
+                    .lines()
+                    .fold((0, 0), |(mw, mh), line| (mw.max(line.len()), mh + 1));
+                let area = Rect::new(
+                    2,
+                    2,
+                    (max_x + 2).min(size.width as usize - 2) as u16,
+                    (max_y + 2).min(size.height as usize - 2) as u16,
+                );
+                f.render_widget(Clear, area);
+                f.render_widget(Paragraph::new(Text::raw(msg)).block(block), area);
             }
         })?;
         Ok(())
@@ -813,6 +836,133 @@ impl Tui {
         Ok(result)
     }
 
+    async fn handle_key(&mut self, ev: Event) -> Result<StepResult, anyhow::Error> {
+        use crossterm::event::KeyModifiers;
+        Ok(match ev {
+            Event::Key(key) => match (key.code, key.modifiers) {
+                (KeyCode::Char('q'), KeyModifiers::NONE) => StepResult::End,
+                (KeyCode::Char('g'), KeyModifiers::NONE) => {
+                    let cur_filt = self.ui_state.lock().await.filter.clone();
+                    let filter = self.input("Enter RTM filter:", &cur_filt).await?;
+                    if !filter.is_empty() {
+                        self.ui_state.lock().await.filter = filter;
+                        self.update_tasks().await?;
+                    }
+                    StepResult::Cont
+                }
+                (KeyCode::Char('A'), KeyModifiers::SHIFT) => {
+                    let task_desc = self.input("Enter new task:", "").await?;
+                    if !task_desc.is_empty() {
+                        let timeline = self.get_timeline().await?;
+                        let _added = self
+                            .api_cache
+                            .add_task(&timeline, &task_desc, None, None, None, true)
+                            .await?;
+                        self.update_tasks().await?;
+                    }
+                    StepResult::Cont
+                }
+                (KeyCode::Char('L'), KeyModifiers::SHIFT) => {
+                    self.update_lists().await?;
+                    StepResult::Cont
+                }
+                (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                    self.ui_state.lock().await.refresh = true;
+                    StepResult::Cont
+                }
+                (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                    let api_cache = self.api_cache.clone();
+                    let event_tx = self.ui_state.lock().await.event_tx.clone();
+                    UiState::start_progress(
+                        &self.ui_state,
+                        "syncing...",
+                        &["|", "/", "-", "\\"],
+                        async move {
+                            api_cache.sync().await.unwrap();
+                            event_tx.send(TuiEvent::SyncFinished).await.unwrap();
+                        },
+                    )
+                    .await?;
+                    StepResult::Cont
+                }
+                (KeyCode::Enter, KeyModifiers::NONE) => {
+                    let mut ui_state = self.ui_state.lock().await;
+                    match ui_state.display_mode {
+                        DisplayMode::Tasks => {
+                            ui_state.show_task = !ui_state.show_task;
+                        }
+                        DisplayMode::Lists => {
+                            ui_state.show_task = !ui_state.show_task;
+                        }
+                    }
+                    StepResult::Cont
+                }
+                (KeyCode::Char('C'), KeyModifiers::SHIFT) => {
+                    let display_mode = self.ui_state.lock().await.display_mode;
+                    match display_mode {
+                        DisplayMode::Tasks => {
+                            info!("Marking task as complete");
+                            self.for_each_selected(async |api_cache, tl, list, ts, task| {
+                                let resp = api_cache
+                                    .mark_complete_id(tl, list, &ts.id, &task.id)
+                                    .await?;
+                                if let Some(transaction) = resp {
+                                    if transaction.undoable && !transaction.id.is_empty() {
+                                        Ok(Some(transaction.id))
+                                    } else {
+                                        Ok(None)
+                                    }
+                                } else {
+                                    Ok(None)
+                                }
+                            })
+                            .await?;
+                            info!("Marked as complete!");
+                            self.update_tasks().await?;
+                        }
+                        DisplayMode::Lists => {}
+                    }
+                    StepResult::Cont
+                }
+                (KeyCode::Char('U'), KeyModifiers::SHIFT) => {
+                    self.undo_latest().await?;
+                    self.update_tasks().await?;
+                    StepResult::Cont
+                }
+                (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
+                    let mut ui_state = self.ui_state.lock().await;
+                    let ui_state = &mut *ui_state;
+                    ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
+                    ui_state.tree_state.key_up();
+                    StepResult::Cont
+                }
+                (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
+                    let mut ui_state = self.ui_state.lock().await;
+                    let ui_state = &mut *ui_state;
+                    if ui_state.list_pos + 1 < ui_state.tree_items.len() {
+                        ui_state.list_pos += 1;
+                    }
+                    ui_state.tree_state.key_down();
+                    StepResult::Cont
+                }
+                (KeyCode::Char(' '), KeyModifiers::NONE) => {
+                    let mut ui_state = self.ui_state.lock().await;
+                    let ui_state = &mut *ui_state;
+                    ui_state.tree_state.toggle_selected();
+                    StepResult::Cont
+                }
+                (KeyCode::Char('?'), KeyModifiers::SHIFT | KeyModifiers::NONE)
+                | (KeyCode::Char('h'), KeyModifiers::NONE) => {
+                    let mut ui_state = self.ui_state.lock().await;
+                    ui_state.show_help = !ui_state.show_help;
+                    StepResult::Cont
+                }
+                _ => StepResult::Cont,
+            },
+            _ => StepResult::Cont,
+        })
+    }
+
     pub async fn step(&mut self) -> Result<StepResult, anyhow::Error> {
         self.draw().await?;
 
@@ -825,133 +975,22 @@ impl Tui {
                     return Err(e.into());
                 }
                 Ok(ev) => {
-                    use crossterm::event::KeyModifiers;
-                    match ev {
-                        Event::Key(key) => match (key.code, key.modifiers) {
-                            (KeyCode::Char('q'), KeyModifiers::NONE) => StepResult::End,
-                            (KeyCode::Char('g'), KeyModifiers::NONE) => {
-                                let cur_filt = self.ui_state.lock().await.filter.clone();
-                                let filter = self.input("Enter RTM filter:", &cur_filt).await?;
-                                if !filter.is_empty() {
-                                    self.ui_state.lock().await.filter = filter;
-                                    self.update_tasks().await?;
-                                }
-                                StepResult::Cont
-                            }
-                            (KeyCode::Char('A'), KeyModifiers::SHIFT) => {
-                                let task_desc = self.input("Enter new task:", "").await?;
-                                if !task_desc.is_empty() {
-                                    let timeline = self.get_timeline().await?;
-                                    let _added = self
-                                        .api_cache
-                                        .add_task(&timeline, &task_desc, None, None, None, true)
-                                        .await?;
-                                    self.update_tasks().await?;
-                                }
-                                StepResult::Cont
-                            }
-                            (KeyCode::Char('L'), KeyModifiers::SHIFT) => {
-                                self.update_lists().await?;
-                                StepResult::Cont
-                            }
-                            (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
-                                self.ui_state.lock().await.refresh = true;
-                                StepResult::Cont
-                            }
-                            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
-                                let api_cache = self.api_cache.clone();
-                                let event_tx = self.ui_state.lock().await.event_tx.clone();
-                                UiState::start_progress(
-                                    &self.ui_state,
-                                    "syncing...",
-                                    &["|", "/", "-", "\\"],
-                                    async move {
-                                        api_cache.sync().await.unwrap();
-                                        event_tx.send(TuiEvent::SyncFinished).await.unwrap();
-                                    },
-                                )
-                                .await?;
-                                StepResult::Cont
-                            }
-                            (KeyCode::Enter, KeyModifiers::NONE) => {
-                                let mut ui_state = self.ui_state.lock().await;
-                                match ui_state.display_mode {
-                                    DisplayMode::Tasks => {
-                                        ui_state.show_task = !ui_state.show_task;
-                                    }
-                                    DisplayMode::Lists => {
-                                        ui_state.show_task = !ui_state.show_task;
-                                    }
-                                }
-                                StepResult::Cont
-                            }
-                            (KeyCode::Char('C'), KeyModifiers::SHIFT) => {
-                                let display_mode = self.ui_state.lock().await.display_mode;
-                                match display_mode {
-                                    DisplayMode::Tasks => {
-                                        info!("Marking task as complete");
-                                        self.for_each_selected(
-                                            async |api_cache, tl, list, ts, task| {
-                                                let resp = api_cache
-                                                    .mark_complete_id(tl, list, &ts.id, &task.id)
-                                                    .await?;
-                                                if let Some(transaction) = resp {
-                                                    if transaction.undoable
-                                                        && !transaction.id.is_empty()
-                                                    {
-                                                        Ok(Some(transaction.id))
-                                                    } else {
-                                                        Ok(None)
-                                                    }
-                                                } else {
-                                                    Ok(None)
-                                                }
-                                            },
-                                        )
-                                        .await?;
-                                        info!("Marked as complete!");
-                                        self.update_tasks().await?;
-                                    }
-                                    DisplayMode::Lists => {}
-                                }
-                                StepResult::Cont
-                            }
-                            (KeyCode::Char('U'), KeyModifiers::SHIFT) => {
-                                self.undo_latest().await?;
-                                self.update_tasks().await?;
-                                StepResult::Cont
-                            }
-                            (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) => {
-                                let mut ui_state = self.ui_state.lock().await;
-                                let ui_state = &mut *ui_state;
-                                ui_state.list_pos = ui_state.list_pos.saturating_sub(1);
-                                ui_state.tree_state.key_up();
-                                StepResult::Cont
-                            }
-                            (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
-                                let mut ui_state = self.ui_state.lock().await;
-                                let ui_state = &mut *ui_state;
-                                if ui_state.list_pos + 1 < ui_state.tree_items.len() {
-                                    ui_state.list_pos += 1;
-                                }
-                                ui_state.tree_state.key_down();
-                                StepResult::Cont
-                            }
-                            (KeyCode::Char(' '), KeyModifiers::NONE) => {
-                                let mut ui_state = self.ui_state.lock().await;
-                                let ui_state = &mut *ui_state;
-                                ui_state.tree_state.toggle_selected();
-                                StepResult::Cont
-                            }
-                            (KeyCode::Char('?'), KeyModifiers::SHIFT | KeyModifiers::NONE)
-                            | (KeyCode::Char('h'), KeyModifiers::NONE) => {
-                                let mut ui_state = self.ui_state.lock().await;
-                                ui_state.show_help = !ui_state.show_help;
-                                StepResult::Cont
-                            }
-                            _ => StepResult::Cont,
-                        },
-                        _ => StepResult::Cont,
+                    // If an error is shown, any key cancels it.
+                    if self.ui_state.lock().await.error_msg.is_some() {
+                        if let Event::Key(_key_event) = ev {
+                            // Cancel error and swallow key.
+                            self.ui_state.lock().await.error_msg = None;
+                            return Ok(StepResult::Cont);
+                        }
+                    }
+                    match self.handle_key(ev).await {
+                        Ok(res) => res,
+                        Err(e) => {
+                            let mut ui_state = self.ui_state.lock().await;
+                            info!("Error: {e}");
+                            ui_state.error_msg = Some(format!("{e}"));
+                            StepResult::Cont
+                        }
                     }
                 }
             },
@@ -1060,8 +1099,8 @@ impl Tui {
         update_lists(&mut all_lists, tasks);
 
         let mut task_ids = Vec::new();
-        for (_, l) in all_lists.iter() {
-            for (_, ts) in l.iter() {
+        for l in all_lists.values() {
+            for ts in l.values() {
                 for t in &ts.task {
                     task_ids.push(t.id.clone());
                 }

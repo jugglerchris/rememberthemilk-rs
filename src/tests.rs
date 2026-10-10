@@ -20,7 +20,7 @@ fn deser_check_token() {
     };
     println!("{}", to_string(&expected).unwrap());
     println!("{}", json_rsp);
-    let ar = from_str::<RTMResponse<AuthResponse>>(json_rsp).unwrap().rsp;
+    let ar: AuthResponse = json_rsp.rtm_parse().unwrap();
     assert_eq!(ar, expected);
 }
 
@@ -211,7 +211,7 @@ fn test_deser_tasklist_response() {
         },
     };
     println!("{}", to_string(&expected).unwrap());
-    let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
+    let lists: TasksResponse = json.rtm_parse().unwrap();
     assert_eq!(lists, expected);
 }
 
@@ -334,6 +334,20 @@ fn test_deser_tasklist_response_notes() {
         },
     };
     println!("{}", to_string(&expected).unwrap());
-    let lists = from_str::<RTMResponse<TasksResponse>>(json).unwrap().rsp;
+    let lists: TasksResponse = json.rtm_parse().unwrap();
     assert_eq!(lists, expected);
+}
+
+#[test]
+fn test_deser_error() {
+    let resp_str =
+        r#"{"rsp":{"stat":"fail","err":{"code":"320","msg":"list_id invalid or not provided"}}}"#;
+    let rsp: Result<MarkDoneResponse, _> = resp_str.rtm_parse();
+    match rsp {
+        Ok(_) => panic!("Unexpected non-error result"),
+        Err(e) => assert_eq!(
+            format!("{e}"),
+            r#"RTM error 320: "list_id invalid or not provided""#
+        ),
+    }
 }

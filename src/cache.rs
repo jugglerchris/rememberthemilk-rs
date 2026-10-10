@@ -7,6 +7,7 @@ use sqlx::{
     migrate::{MigrateDatabase as _, MigrateError},
     Sqlite, SqlitePool,
 };
+use tokio_stream::StreamExt;
 type JsonValue = serde_json::Value;
 
 use crate::{RTMList, RTMLists, RTMTasks, RTMTimeline, RTMTransaction, Task, TaskSeries, API};
@@ -41,6 +42,48 @@ pub type Result<T> = std::result::Result<T, CacheError>;
 pub struct TaskCache {
     pool: SqlitePool,
     api: API,
+}
+
+/// Run a raw sql statement against the cache database.
+pub async fn run_raw_sql(db_path: &Path, sql: &str) -> Result<()> {
+    use sqlx::{Column, Row};
+    log::info!("Opening db at {db_path:?}");
+    let Some(db_name) = db_path.as_os_str().to_str() else {
+        return Err(CacheError::PathError);
+    };
+    let pool = SqlitePool::connect(db_name).await?;
+
+    let mut rows = sqlx::query(sql).fetch(&pool);
+
+    let mut first = true;
+    while let Some(row) = rows.try_next().await? {
+        if first {
+            let mut firstcol = true;
+            for col in row.columns() {
+                if firstcol {
+                    firstcol = false;
+                } else {
+                    print!(",");
+                }
+                print!("{}", col.name());
+            }
+            println!();
+            first = false;
+        }
+        let mut firstcol = true;
+        for i in 0..row.len() {
+            if firstcol {
+                firstcol = false;
+            } else {
+                print!(",");
+            }
+            let val: &str = row.get(i);
+            print!("{val}");
+        }
+        println!();
+    }
+
+    Ok(())
 }
 
 impl TaskCache {
@@ -93,7 +136,7 @@ impl TaskCache {
                         sqlx::query(
                             "INSERT INTO taskseries(list_id, taskseries_id, data)
                             VALUES(?1, ?2, jsonb(?3))
-                            ON CONFLICT DO UPDATE SET data = jsonb(?3);
+                            ON CONFLICT DO UPDATE SET (list_id, data) = (?1, jsonb(?3));
                         ",
                         )
                         .bind(&list_id)
@@ -106,12 +149,11 @@ impl TaskCache {
                             for t in tasks {
                                 let task_id = t.get("id").unwrap().as_str().unwrap();
                                 sqlx::query(
-                                    "INSERT INTO tasks(list_id, taskseries_id, task_id, data)
-                                    VALUES(?1, ?2, ?3, jsonb(?4))
-                                    ON CONFLICT DO UPDATE SET data = jsonb(?4);
+                                    "INSERT INTO tasks(taskseries_id, task_id, data)
+                                    VALUES(?1, ?2, jsonb(?3))
+                                    ON CONFLICT DO UPDATE SET data = jsonb(?3);
                                 ",
                                 )
-                                .bind(&list_id)
                                 .bind(&taskseries_id)
                                 .bind(task_id)
                                 .bind(t.to_string())
@@ -136,10 +178,9 @@ impl TaskCache {
                                     sqlx::query(
                                         "UPDATE tasks
                                          SET deleted=true
-                                         WHERE list_id=? AND taskseries_id=? AND task_id=?;
+                                         WHERE taskseries_id=? AND task_id=?;
                             ",
                                     )
-                                    .bind(&list_id)
                                     .bind(&taskseries_id)
                                     .bind(task_id)
                                     .execute(&mut *tx)
@@ -217,7 +258,7 @@ impl TaskCache {
         let query_str = format!(
             r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
-             USING (list_id, taskseries_id)
+             USING (taskseries_id)
              WHERE
                 t.deleted != TRUE AND
                 {filter_clause};
@@ -265,7 +306,7 @@ impl TaskCache {
 
         let query = r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
-             USING (list_id, taskseries_id)
+             USING (taskseries_id)
              WHERE
                 t.deleted != TRUE AND
                 jsonb_extract(t.data, "$.completed") = "" AND
@@ -407,10 +448,10 @@ impl TaskCache {
         let query_str = format!(
             r#"SELECT ts.list_id, json(ts.data) as ts_data, json(t.data) as t_data
              FROM taskseries ts, tasks t
-             USING (list_id, taskseries_id)
+             USING (taskseries_id)
              WHERE
                 t.deleted != TRUE AND
-                list_id = ? AND
+                ts.list_id = ? AND
                 {filter_clause};
                 "#
         );

@@ -53,20 +53,55 @@
 //! # Ok(())
 //! # }
 //! ```
+use std::fmt::Display;
+
 use anyhow::{bail, Error};
 use chrono::{DateTime, Duration, NaiveTime, Utc};
-use serde::{de::DeserializeOwned, de::Unexpected, Deserialize, Serialize};
-use serde_json::{from_reader, from_str};
+use serde::{
+    de::{DeserializeOwned, Unexpected},
+    Deserialize, Deserializer, Serialize,
+};
+use serde_json::from_str;
 
 #[cfg(feature = "cache")]
 pub mod cache;
+
+fn deser_isize_from_str<'de, D>(deser: D) -> Result<isize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumOrString<'a> {
+        Num(isize),
+        Str(&'a str),
+    }
+
+    match NumOrString::deserialize(deser)? {
+        NumOrString::Num(i) => Ok(i),
+        NumOrString::Str(s) => s.parse().map_err(serde::de::Error::custom),
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 #[serde(rename = "err")]
 /// Error type for Remember the Milk API calls.
 pub struct RTMError {
+    #[serde(deserialize_with = "deser_isize_from_str")]
     code: isize,
     msg: String,
+}
+
+impl Display for RTMError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, r#"RTM error {}: "{}""#, self.code, self.msg)
+    }
+}
+
+impl std::error::Error for RTMError {
+    fn description(&self) -> &str {
+        &self.msg
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -529,9 +564,37 @@ struct GetMethodsResponse {
     stat: Stat,
     methods: GetMethodsPayload,
 }
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+struct ErrHolder {
+    stat: Stat,
+    err: RTMError,
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[serde(untagged)]
+enum RTMResult<T> {
+    Ok(T),
+    Err(ErrHolder),
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 struct RTMResponse<T> {
-    rsp: T,
+    rsp: RTMResult<T>,
+}
+
+/// Extract response from response strings.
+trait RTMExtract<T> {
+    fn rtm_parse(&self) -> Result<T, Error>;
+}
+
+impl<T: DeserializeOwned> RTMExtract<T> for str {
+    fn rtm_parse(&self) -> Result<T, Error> {
+        match from_str::<RTMResponse<T>>(self)?.rsp {
+            RTMResult::Ok(val) => Ok(val),
+            RTMResult::Err(err_holder) => Err(err_holder.err.into()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
@@ -682,7 +745,7 @@ impl API {
     }
 
     async fn get_frob(&self) -> Result<String, Error> {
-        let response = self
+        let frob_resp: FrobResponse = self
             .make_authenticated_request(
                 &self.get_rest_url(),
                 &[
@@ -691,10 +754,8 @@ impl API {
                     ("api_key", &self.api_key),
                 ],
             )
-            .await?;
-        let frob_resp = from_str::<RTMResponse<FrobResponse>>(&response)
-            .unwrap()
-            .rsp;
+            .await?
+            .rtm_parse()?;
         Ok(frob_resp.frob)
     }
 
@@ -753,7 +814,7 @@ impl API {
     /// available (and retrievable using [API::to_config]) and true will be
     /// returned.  Other API calls can be made.
     pub async fn check_auth(&mut self, auth: &AuthState) -> Result<bool, Error> {
-        let response = self
+        let auth_rep: AuthResponse = self
             .make_authenticated_request(
                 &self.get_rest_url(),
                 &[
@@ -763,11 +824,9 @@ impl API {
                     ("frob", &auth.frob),
                 ],
             )
-            .await?;
+            .await?
+            .rtm_parse()?;
 
-        let auth_rep = from_str::<RTMResponse<AuthResponse>>(&response)
-            .unwrap()
-            .rsp;
         self.token = Some(auth_rep.auth.token);
         self.user = Some(auth_rep.auth.user);
         Ok(true)
@@ -781,7 +840,7 @@ impl API {
     /// not successful to re-authenticate the user.
     pub async fn has_token(&self, perm: Perms) -> Result<bool, Error> {
         if let Some(ref tok) = self.token {
-            let response = self
+            let ar: AuthResponse = self
                 .make_authenticated_request(
                     &self.get_rest_url(),
                     &[
@@ -791,8 +850,8 @@ impl API {
                         ("auth_token", tok),
                     ],
                 )
-                .await?;
-            let ar = from_str::<RTMResponse<AuthResponse>>(&response)?.rsp;
+                .await?
+                .rtm_parse()?;
             Ok(ar.auth.perms.includes(perm))
         } else {
             Ok(false)
@@ -834,10 +893,10 @@ impl API {
                 ls_str = ls.to_rfc3339();
                 params.push(("last_sync", &ls_str));
             }
-            let response = self
+            Ok(self
                 .make_authenticated_request(&self.get_rest_url(), &params)
-                .await?;
-            Ok(from_reader::<_, T>(response.as_bytes())?)
+                .await?
+                .rtm_parse()?)
         } else {
             bail!("Unable to fetch tasks")
         }
@@ -861,9 +920,8 @@ impl API {
         last_sync: Option<chrono::DateTime<Utc>>,
     ) -> Result<RTMTasks, Error> {
         Ok(self
-            .get_tasks_filtered_sync_typed::<RTMResponse<TasksResponse>>(filter, last_sync)
+            .get_tasks_filtered_sync_typed::<TasksResponse>(filter, last_sync)
             .await?
-            .rsp
             .tasks)
     }
 
@@ -888,8 +946,6 @@ impl API {
         Ok(self
             .get_tasks_filtered_sync_typed::<serde_json::Value>(filter, last_sync)
             .await?
-            .get_mut("rsp")
-            .ok_or_else(|| anyhow::anyhow!("Response did not have rsp field"))?
             .get_mut("tasks")
             .ok_or_else(|| anyhow::anyhow!("Response did not have task field"))?
             .take())
@@ -940,15 +996,11 @@ impl API {
             if !filter.is_empty() {
                 params.push(("filter", filter));
             }
-            let response = self
+            let response: TasksResponse = self
                 .make_authenticated_request(&self.get_rest_url(), &params)
-                .await?;
-            // TODO: handle failure
-            let tasklist = from_str::<RTMResponse<TasksResponse>>(&response)
-                .unwrap()
-                .rsp
-                .tasks;
-            Ok(tasklist)
+                .await?
+                .rtm_parse()?;
+            Ok(response.tasks)
         } else {
             bail!("Unable to fetch tasks")
         }
@@ -965,15 +1017,11 @@ impl API {
                 ("api_key", &self.api_key),
                 ("auth_token", tok),
             ];
-            let response = self
+            let lists: ListsResponse = self
                 .make_authenticated_request(&self.get_rest_url(), params)
-                .await?;
-            // TODO: handle failure
-            let lists = from_str::<RTMResponse<ListsResponse>>(&response)
-                .unwrap()
-                .rsp
-                .lists;
-            Ok(lists.list)
+                .await?
+                .rtm_parse()?;
+            Ok(lists.lists.list)
         } else {
             bail!("Unable to fetch tasks")
         }
@@ -993,15 +1041,11 @@ impl API {
                 ("api_key", &self.api_key),
                 ("auth_token", tok),
             ];
-            let response = self
+            let response: TimelineResponse = self
                 .make_authenticated_request(&self.get_rest_url(), params)
-                .await?;
-            // TODO: handle failure
-            let tl = from_str::<RTMResponse<TimelineResponse>>(&response)
-                .unwrap()
-                .rsp
-                .timeline;
-            Ok(RTMTimeline(tl))
+                .await?
+                .rtm_parse()?;
+            Ok(RTMTimeline(response.timeline))
         } else {
             bail!("Unable to fetch tasks")
         }
@@ -1026,15 +1070,11 @@ impl API {
                 ("timeline", &timeline.0),
                 ("transaction_id", transaction_id),
             ];
-            let response = self
+            let _: UndoResponse = self
                 .make_authenticated_request(&self.get_rest_url(), params)
-                .await?;
-            let rsp = from_str::<RTMResponse<UndoResponse>>(&response)?.rsp;
-            if let Stat::Ok = rsp.stat {
-                Ok(())
-            } else {
-                bail!("Error undoing: {:?}", rsp.stat)
-            }
+                .await?
+                .rtm_parse()?;
+            Ok(())
         } else {
             bail!("Unable to undo")
         }
@@ -1067,15 +1107,11 @@ impl API {
                 ("task_id", &task.id),
                 ("url", url),
             ];
-            let response = self
+            let _resp: SetURLResponse = self
                 .make_authenticated_request(&self.get_rest_url(), params)
-                .await?;
-            let rsp = from_str::<RTMResponse<SetURLResponse>>(&response)?.rsp;
-            if let Stat::Ok = rsp.stat {
-                Ok(())
-            } else {
-                bail!("Error adding task")
-            }
+                .await?
+                .rtm_parse()?;
+            Ok(())
         } else {
             bail!("Unable to fetch tasks")
         }
@@ -1109,15 +1145,11 @@ impl API {
                 ("task_id", &task.id),
                 ("tags", &tags),
             ];
-            let response = self
+            let _resp: AddTagResponse = self
                 .make_authenticated_request(&self.get_rest_url(), params)
-                .await?;
-            let rsp = from_str::<RTMResponse<AddTagResponse>>(&response)?.rsp;
-            if let Stat::Ok = rsp.stat {
-                Ok(())
-            } else {
-                bail!("Error adding task")
-            }
+                .await?
+                .rtm_parse()?;
+            Ok(())
         } else {
             bail!("Unable to add task")
         }
@@ -1164,15 +1196,11 @@ impl API {
                 ("taskseries_id", taskseries_id),
                 ("task_id", task_id),
             ];
-            let response = self
+            let resp: MarkDoneResponse = self
                 .make_authenticated_request(&self.get_rest_url(), params)
-                .await?;
-            let rsp = from_str::<RTMResponse<MarkDoneResponse>>(&response)?.rsp;
-            if let Stat::Ok = rsp.stat {
-                Ok(rsp.transaction)
-            } else {
-                bail!("Error completing task")
-            }
+                .await?
+                .rtm_parse()?;
+            Ok(resp.transaction)
         } else {
             bail!("Unable to complete task")
         }
@@ -1217,19 +1245,15 @@ impl API {
             if smart {
                 params.push(("parse", "1"));
             }
-            let response = self
+            let response: AddTaskResponse = self
                 .make_authenticated_request(&self.get_rest_url(), &params)
-                .await?;
-            log::trace!("Add task response: {}", response);
-            let rsp = from_str::<RTMResponse<AddTaskResponse>>(&response)?.rsp;
-            if let Stat::Ok = rsp.stat {
-                if let Some(list) = rsp.list {
-                    if let Some(series) = &list.taskseries {
-                        if !series.is_empty() {
-                            Ok(Some(list))
-                        } else {
-                            Ok(None)
-                        }
+                .await?
+                .rtm_parse()?;
+            log::trace!("Add task response: {:?}", response);
+            if let Some(list) = response.list {
+                if let Some(series) = &list.taskseries {
+                    if !series.is_empty() {
+                        Ok(Some(list))
                     } else {
                         Ok(None)
                     }
@@ -1237,7 +1261,7 @@ impl API {
                     Ok(None)
                 }
             } else {
-                bail!("Error adding task")
+                Ok(None)
             }
         } else {
             bail!("Unable to fetch tasks")
@@ -1269,19 +1293,15 @@ impl API {
             if due.time() != NaiveTime::from_hms_opt(0, 0, 0).unwrap() {
                 params.push(("has_due_time", "1"));
             }
-            let response = self
+            let response: SetDueDateResponse = self
                 .make_authenticated_request(&self.get_rest_url(), &params)
-                .await?;
-            log::trace!("Set due date response: {}", response);
-            let rsp = from_str::<RTMResponse<SetDueDateResponse>>(&response)?.rsp;
-            if let Stat::Ok = rsp.stat {
-                if let Some(list) = rsp.list {
-                    if let Some(mut series) = list.taskseries {
-                        if !series.is_empty() {
-                            Ok(Some(series.pop().unwrap()))
-                        } else {
-                            Ok(None)
-                        }
+                .await?
+                .rtm_parse()?;
+            log::trace!("Set due date response: {:?}", response);
+            if let Some(list) = response.list {
+                if let Some(mut series) = list.taskseries {
+                    if !series.is_empty() {
+                        Ok(Some(series.pop().unwrap()))
                     } else {
                         Ok(None)
                     }
@@ -1289,7 +1309,7 @@ impl API {
                     Ok(None)
                 }
             } else {
-                bail!("Error adding task")
+                Ok(None)
             }
         } else {
             bail!("Unable to fetch tasks")
@@ -1303,12 +1323,12 @@ impl API {
             ("format", "json"),
             ("api_key", &self.api_key),
         ];
-        let response = self
+        let response: GetMethodsResponse = self
             .make_authenticated_request(&self.get_rest_url(), &params)
-            .await?;
-        log::trace!("Set due date response: {}", response);
-        let rsp = from_str::<RTMResponse<GetMethodsResponse>>(&response)?.rsp;
-        Ok(rsp.methods.method)
+            .await?
+            .rtm_parse()?;
+        log::trace!("Set due date response: {:?}", response);
+        Ok(response.methods.method)
     }
 }
 
