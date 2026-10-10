@@ -45,8 +45,7 @@ pub struct TaskCache {
 }
 
 /// Run a raw sql statement against the cache database.
-pub async fn run_raw_sql(db_path: &Path, sql: &str) -> Result<()>
-{
+pub async fn run_raw_sql(db_path: &Path, sql: &str) -> Result<()> {
     use sqlx::{Column, Row};
     log::info!("Opening db at {db_path:?}");
     let Some(db_name) = db_path.as_os_str().to_str() else {
@@ -54,8 +53,7 @@ pub async fn run_raw_sql(db_path: &Path, sql: &str) -> Result<()>
     };
     let pool = SqlitePool::connect(db_name).await?;
 
-    let mut rows = sqlx::query(sql)
-        .fetch(&pool);
+    let mut rows = sqlx::query(sql).fetch(&pool);
 
     let mut first = true;
     while let Some(row) = rows.try_next().await? {

@@ -602,16 +602,18 @@ impl Tui {
                 let tree_pos = ui_state.tree_state.selected();
                 let task_info = match ui_state.display_mode {
                     DisplayMode::Tasks => tree_pos.last().map(|pos| {
-                        (&ui_state.flat_tasks[*pos].list_id,
-                        &ui_state.flat_tasks[*pos].ts)
+                        (
+                            &ui_state.flat_tasks[*pos].list_id,
+                            &ui_state.flat_tasks[*pos].ts,
+                        )
                     }),
                     DisplayMode::Lists => {
                         if tree_pos.len() == 2 {
                             RtmTaskListIterator::new(
-                                    ui_state.lists[tree_pos[0]].tasks.as_ref().unwrap(),
-                                )
-                                .nth(tree_pos[1])
-                                .map(|item| (&item.0.id, item.1))
+                                ui_state.lists[tree_pos[0]].tasks.as_ref().unwrap(),
+                            )
+                            .nth(tree_pos[1])
+                            .map(|item| (&item.0.id, item.1))
                         } else {
                             None
                         }
@@ -757,9 +759,12 @@ impl Tui {
                 let (max_x, max_y) = msg
                     .lines()
                     .fold((0, 0), |(mw, mh), line| (mw.max(line.len()), mh + 1));
-                let area = Rect::new(2, 2,
+                let area = Rect::new(
+                    2,
+                    2,
                     (max_x + 2).min(size.width as usize - 2) as u16,
-                    (max_y + 2).min(size.height as usize - 2) as u16);
+                    (max_y + 2).min(size.height as usize - 2) as u16,
+                );
                 f.render_widget(Clear, area);
                 f.render_widget(Paragraph::new(Text::raw(msg)).block(block), area);
             }
@@ -877,7 +882,7 @@ impl Tui {
                             event_tx.send(TuiEvent::SyncFinished).await.unwrap();
                         },
                     )
-                        .await?;
+                    .await?;
                     StepResult::Cont
                 }
                 (KeyCode::Enter, KeyModifiers::NONE) => {
@@ -897,25 +902,21 @@ impl Tui {
                     match display_mode {
                         DisplayMode::Tasks => {
                             info!("Marking task as complete");
-                            self.for_each_selected(
-                                async |api_cache, tl, list, ts, task| {
-                                    let resp = api_cache
-                                        .mark_complete_id(tl, list, &ts.id, &task.id)
-                                        .await?;
-                                    if let Some(transaction) = resp {
-                                        if transaction.undoable
-                                            && !transaction.id.is_empty()
-                                        {
-                                            Ok(Some(transaction.id))
-                                        } else {
-                                            Ok(None)
-                                        }
+                            self.for_each_selected(async |api_cache, tl, list, ts, task| {
+                                let resp = api_cache
+                                    .mark_complete_id(tl, list, &ts.id, &task.id)
+                                    .await?;
+                                if let Some(transaction) = resp {
+                                    if transaction.undoable && !transaction.id.is_empty() {
+                                        Ok(Some(transaction.id))
                                     } else {
                                         Ok(None)
                                     }
-                                },
-                            )
-                                .await?;
+                                } else {
+                                    Ok(None)
+                                }
+                            })
+                            .await?;
                             info!("Marked as complete!");
                             self.update_tasks().await?;
                         }
@@ -951,11 +952,11 @@ impl Tui {
                     StepResult::Cont
                 }
                 (KeyCode::Char('?'), KeyModifiers::SHIFT | KeyModifiers::NONE)
-                    | (KeyCode::Char('h'), KeyModifiers::NONE) => {
-                        let mut ui_state = self.ui_state.lock().await;
-                        ui_state.show_help = !ui_state.show_help;
-                        StepResult::Cont
-                    }
+                | (KeyCode::Char('h'), KeyModifiers::NONE) => {
+                    let mut ui_state = self.ui_state.lock().await;
+                    ui_state.show_help = !ui_state.show_help;
+                    StepResult::Cont
+                }
                 _ => StepResult::Cont,
             },
             _ => StepResult::Cont,

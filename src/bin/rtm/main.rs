@@ -78,9 +78,7 @@ enum Command {
     Tui,
     #[cfg(feature = "cache")]
     /// Run an SQL statement on the database
-    Sql {
-        statement: String,
-    },
+    Sql { statement: String },
     /// Remove the saved user token
     Logout,
 }
